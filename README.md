@@ -58,6 +58,11 @@ Logs live under `~/Library/Logs/securelocal-sync.log`, and every major step time
 - `docs/rclone-advice.md`: step-by-step rclone remote setup and encryption guidance.
 - `docs/troubleshooting.md`: placeholder for future issue triage notes (add problems/solutions here as they arise).
 
+## Continuous analysis
+
+- GitHub Actions runs a SonarCloud scan on pushes to `main` and pull requests via `.github/workflows/sonarcloud.yml`.
+- Set repository secrets `SONAR_TOKEN`, `SONAR_ORGANIZATION`, and `SONAR_PROJECT_KEY` so the workflow can authenticate and associate reports with your SonarCloud project (the scan currently targets `bin` and `docs`).
+
 ## Security reminders
 
 - Keep `~/secureLocal` inside FileVault (install script already reminds you).

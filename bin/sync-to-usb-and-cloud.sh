@@ -41,7 +41,7 @@ log_error() {
 
 # Find USB drive by UUID
 find_usb_by_uuid() {
-	for volume in "${USB_MOUNT}_BASE"/*; do
+	for volume in "${USB_MOUNT_BASE}"/*; do
 		if [[ -d ${volume} ]]; then
 			local vol_uuid
 			vol_uuid=$(diskutil info "${volume}" 2>/dev/null | grep "Volume UUID" | awk '{print $3}' || echo "")

@@ -140,3 +140,102 @@ All 7 stories pass DoR. Handoff to DESIGN wave is unblocked.
 | DESIGN-002 | Is config.yaml written by install.sh alone, or is there a separate `register` command? | Affects installer UX and whether registration is a subcommand or prompts within install. |
 | DESIGN-003 | Should USB target directory be auto-created if missing? | `rsync` can create it; question is whether this is desired behavior or a hard error. |
 | DESIGN-004 | Is StartInterval configurable (e.g. hourly vs every 30min)? | Default 3600s; Dan may want to adjust. Config field vs hardcoded. |
+
+---
+
+## Wave: DESIGN / [REF] DDD List
+
+| ID | Decision | Verdict | Rationale |
+|----|----------|---------|-----------|
+| DDD-001 | Config schema format | YAML v2, directories-first | Human-readable; structured; replaces flat config.env. See ADR-001. |
+| DDD-002 | YAML parser in bash | python3 parse-once at startup | Zero new runtime dependency; macOS system python3 has PyYAML; robust vs grep/sed. See ADR-002. |
+| DDD-003 | USB registration mechanism | `install.sh add-device` subcommand | Reuses existing `select_usb_volume()` logic; minimal new code; one entrypoint. See ADR-003. |
+| DDD-004 | USB target directory | Auto-create (`mkdir -p`) | Consistent with existing behaviour; first sync to fresh USB should not fail. |
+| DDD-005 | StartInterval | Configurable via `sync_interval_seconds` in config.yaml (default 3600) | Config is single source of truth per DR--config-governance. |
+| DDD-006 | Atomic config writes | Temp-file-then-rename pattern | Prevents partial config.yaml being read by running sync scripts. |
+| DDD-007 | Script separation | Two independent scripts (`sync-usb.sh`, `sync-cloud.sh`) | Separation of concerns; independent triggers; neither script imports the other. |
+
+---
+
+## Wave: DESIGN / [REF] Component Decomposition
+
+| Component | Path | Change Type | Notes |
+|-----------|------|-------------|-------|
+| install.sh | `bin/install.sh` | MODIFY | Add YAML config writer, 2-plist installer, `add-device` subcommand |
+| sync-usb.sh | `bin/sync-usb.sh` | CREATE | Replaces USB half of sync-to-usb-and-cloud.sh |
+| sync-cloud.sh | `bin/sync-cloud.sh` | CREATE | Replaces cloud half of sync-to-usb-and-cloud.sh |
+| sync-to-usb-and-cloud.sh | `bin/sync-to-usb-and-cloud.sh` | DELETE | Superseded by the two new scripts |
+| test-sync-script.sh | `bin/test-sync-script.sh` | MODIFY | New config format, two script targets, multi-UUID mock |
+| config.yaml | `~/.config/securelocal/config.yaml` | CREATE | Schema v2; replaces config.env |
+| usb-sync.plist | `~/Library/LaunchAgents/com.securelocal.usb-sync.plist` | CREATE | WatchPaths /Volumes |
+| cloud-sync.plist | `~/Library/LaunchAgents/com.securelocal.cloud-sync.plist` | CREATE | StartInterval (configurable) |
+| sync.plist (old) | `~/Library/LaunchAgents/com.securelocal.sync.plist` | DELETE | Removed by install.sh upgrade path |
+
+---
+
+## Wave: DESIGN / [REF] Driving Ports
+
+| Port | Surface | Trigger | Handler |
+|------|---------|---------|---------|
+| USB mount event | launchd WatchPaths `/Volumes` | USB device plugged in | `sync-usb.sh` |
+| Timer event | launchd StartInterval | Every N seconds (default 3600) | `sync-cloud.sh` |
+| Manual invocation | Shell (Dan's terminal) | Direct execution | `sync-usb.sh` or `sync-cloud.sh` |
+| Install / add-device | Shell (Dan's terminal) | Direct execution | `install.sh` or `install.sh add-device` |
+
+---
+
+## Wave: DESIGN / [REF] Driven Ports and Adapters
+
+| Port | Adapter | External System |
+|------|---------|----------------|
+| Config read | `load_config()` — python3 one-liner | config.yaml on disk |
+| USB UUID detection | `find_usb_by_uuid()` — wraps `diskutil info` | macOS diskutil |
+| File sync (USB) | `sync_to_usb()` — wraps `rsync -avh --ignore-errors` | USB drive at /Volumes |
+| File sync (cloud) | `sync_to_cloud()` — wraps `rclone sync` | rclone remote (encrypted) |
+| Structured logging | Append-mode `echo` to log file | securelocal-sync.log |
+| Config write | Temp-rename pattern | config.yaml on disk |
+| Plist management | `launchctl load/unload` | launchd |
+
+---
+
+## Wave: DESIGN / [REF] Technology Choices
+
+| Technology | Version | Rationale |
+|------------|---------|-----------|
+| Bash | 5 (system) | Existing codebase; macOS system shell; no new runtime |
+| YAML | — (data format) | Human-readable structured config; replaces flat env file |
+| python3 | System (macOS 12.3+) | YAML parsing; zero new dependency; PyYAML in stdlib |
+| rsync | System | Existing; checksummed incremental sync |
+| rclone | Existing dep | Existing; pre-configured encrypted remote |
+| diskutil | System | Only tool that reliably surfaces Volume UUID on macOS |
+| launchd | System | WatchPaths + StartInterval cover both trigger types natively |
+
+No new runtime dependencies introduced.
+
+---
+
+## Wave: DESIGN / [REF] Reuse Analysis
+
+| Existing Function | File | Overlap | Decision | Justification |
+|-------------------|------|---------|----------|---------------|
+| `find_usb_by_uuid()` | sync-to-usb-and-cloud.sh:43 | UUID scan logic | ADAPT | Generalise: iterate all registered UUIDs, not one global |
+| `sync_to_usb()` | sync-to-usb-and-cloud.sh:58 | rsync + retry | ADAPT | Wrap in per-directory loop; parameterise paths |
+| `sync_to_cloud()` | sync-to-usb-and-cloud.sh:87 | rclone + retry | ADAPT | Parameterise remote per directory; remove USB coupling |
+| `log()` / `log_error()` | sync-to-usb-and-cloud.sh:27 | Logging | REPLACE | New structured format required (US-004) |
+| `select_usb_volume()` | install.sh:58 | Volume detection + UUID extract | EXTEND | Core of `add-device` subcommand; add duplicate UUID check |
+| `check_dependencies()` | install.sh:26 | Dependency validation | REUSE | No new system deps; add python3 check |
+| `check_rclone_remote()` | install.sh:91 | Remote validation | REUSE | Unchanged contract |
+| `write_config_file()` | install.sh:133 | Config write | REPLACE | Must write YAML v2 instead of config.env |
+| `create_launch_agent()` | install.sh:148 | Plist installation | REPLACE | Two plists + old plist removal |
+| Test harness framework | test-sync-script.sh:1 | Test scaffold | EXTEND | Config format + script targets change |
+| Mock factories (diskutil) | test-sync-script.sh:137 | diskutil mock | EXTEND | Add multi-UUID response capability |
+
+---
+
+## Wave: DESIGN / [REF] Open Questions
+
+| ID | Question | Disposition |
+|----|----------|-------------|
+| OQ-001 | Log rotation | Out of scope; document in README as future concern (macOS newsyslog) |
+| OQ-002 | python3 dependency check | Trivial; crafter adds to `check_dependencies()` during implementation |
+| OQ-003 | `sync_interval_seconds` plist regeneration | Crafter documents in `install.sh` help output — plist must be reloaded after config change |

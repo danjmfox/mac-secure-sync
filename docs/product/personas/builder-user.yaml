@@ -1,0 +1,40 @@
+schema_version: 1
+persona:
+  id: builder-user
+  name: Dan Fox
+  role: Solo developer and sole user of mac-secure-sync
+  archetype: Guardian of sensitive local data who builds and operates their own tools
+
+  context:
+    environment: macOS, single machine, personal use
+    technical_level: high — comfortable with shell, launchd, rclone, rsync, git
+    relationship_to_tool: builder and operator — writes, installs, and uses the tool themselves
+
+  job_to_be_done: >
+    When I am working with sensitive personal data on my Mac,
+    I want it automatically backed up to encrypted USB and encrypted cloud
+    without any manual steps after the initial setup,
+    so I can trust that my data is safe even if my Mac is lost, stolen, or corrupted.
+
+  motivations:
+    - Data resilience without cognitive overhead — "set and forget"
+    - Offline safety net (USB) independent from cloud availability
+    - Clear, auditable evidence that sync happened successfully
+
+  frustrations:
+    - Manual sync steps are easy to forget, especially under pressure
+    - A combined USB+cloud script that mixes unrelated triggers
+    - Config drift when adding a second USB device — no clean model for it
+    - Not knowing whether last night's sync actually worked
+
+  emotional_arc:
+    setup: Confident but cautious — wants to verify every step before trusting automation
+    regular_use: Low-awareness — trusts automation to run silently in background
+    failure: Alert — needs clear signal that something went wrong, not silent failure
+    recovery: Methodical — wants to understand what failed and re-run with confidence
+
+  constraints:
+    - Sole user: no multi-user or team considerations
+    - macOS only: no cross-platform requirements
+    - Hardware-encrypted USB required (IronKey D300 or equivalent per security DR)
+    - rclone.conf must be separately secured (risk of key loss)

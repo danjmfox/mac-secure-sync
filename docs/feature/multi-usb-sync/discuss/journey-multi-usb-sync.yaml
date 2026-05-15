@@ -1,0 +1,270 @@
+schema_version: 1
+feature_id: multi-usb-sync
+date: 2026-05-15
+analyst: Luna (nw-product-owner)
+
+journey:
+  name: Multi-USB Sync — Silent Guardian
+  goal: >
+    Dan's sensitive directories are automatically backed up to whichever USB device mounts
+    and to cloud on an hourly timer, with no manual steps after initial setup.
+  persona: builder-user (Dan Fox)
+  jobs:
+    - JOB-001 (silent-guardian)
+    - JOB-002 (multi-device-guardian)
+
+  emotional_arc:
+    start: Confident but cautious — wants to verify the new config before trusting it
+    middle: Low-awareness — automation runs silently while Dan works or sleeps
+    end: Alert and methodical if a failure surfaces; relieved when resolved
+
+steps:
+
+  - id: 1
+    name: USB Device Mounts
+    trigger: Dan plugs in USB-A (home) or USB-B (office). launchd WatchPaths detects /Volumes change.
+    actor: launchd + macOS kernel
+
+    shared_artifacts:
+      - name: usb_uuid
+        source: config.yaml:usb_devices[*].id
+        displayed_as: "${USB_UUID}"
+        consumers:
+          - USB sync script UUID validation
+          - installer (writes UUID at setup time)
+
+    emotional_state:
+      entry: Unaware — Dan is focused on work, not thinking about sync
+      exit: Unaware — automation fires invisibly
+
+    integration_checkpoint: >
+      launchd plist (com.securelocal.usb-sync.plist) uses WatchPaths ["/Volumes"].
+      Must fire for any /Volumes change, not only target UUID mounts.
+
+    failure_modes:
+      - Another volume mounts (not a registered USB) — script should exit 0 silently after UUID scan fails to match
+      - launchd plist not loaded — sync never fires; no visible signal to Dan
+
+    gherkin: |
+      Scenario: Registered USB mounts and sync fires automatically
+        Given Dan has registered USB-A (UUID: 1A2B-3C4D) in config.yaml
+        And USB-A is not currently mounted
+        When Dan plugs USB-A into his Mac
+        Then launchd fires sync-usb.sh within 5 seconds of mount detection
+        And sync-usb.sh identifies USB-A by UUID match in /Volumes
+
+      Scenario: Unregistered volume mounts without triggering sync
+        Given Dan's config.yaml contains only UUID-A and UUID-B
+        When Dan mounts an unrelated USB key (UUID: FFFF-0000)
+        Then sync-usb.sh exits 0 without syncing any directory
+        And the log file records "no registered USB found" at INFO level
+
+  - id: 2
+    name: USB Sync Executes
+    trigger: sync-usb.sh reads config.yaml, resolves dirs for mounted UUID, runs rsync per dir.
+    actor: sync-usb.sh
+
+    shared_artifacts:
+      - name: config_yaml
+        source: ~/.config/securelocal/config.yaml
+        displayed_as: "${CONFIG_PATH}"
+        consumers:
+          - sync-usb.sh (reads directories + usb_devices mapping)
+          - sync-cloud.sh (reads directories + cloud_remote mapping)
+          - installer (writes at setup time)
+      - name: log_file
+        source: config.yaml:log_file
+        displayed_as: "${LOG_FILE}"
+        consumers:
+          - sync-usb.sh (writes)
+          - sync-cloud.sh (writes)
+          - Dan (reads for verification)
+
+    emotional_state:
+      entry: Unaware
+      exit: Unaware (or: briefly checking log → relieved)
+
+    integration_checkpoint: >
+      USB sync script must iterate config.yaml:directories, filter by
+      usb_devices list containing the mounted UUID, and rsync each matching dir.
+      Order: validate config → find UUID in /Volumes → resolve dirs → rsync each.
+
+    failure_modes:
+      - rsync fails on one directory (partial failure) — remaining dirs should still attempt; exit 1 after all
+      - Config YAML malformed — exit 4 with descriptive message
+      - USB unmounts mid-sync — rsync error caught; log failure; exit 1
+
+    gherkin: |
+      Scenario: All registered directories sync to USB on mount
+        Given USB-A is mounted and UUID matches config.yaml
+        And config.yaml maps USB-A to [~/secureLocal, ~/Projects]
+        When sync-usb.sh runs
+        Then ~/secureLocal is rsynced to /Volumes/IronKey-A/secureLocal
+        And ~/Projects is rsynced to /Volumes/IronKey-A/Projects
+        And the log records success for each directory with timestamps
+        And sync-usb.sh exits 0
+
+      Scenario: Partial directory failure is logged and exits non-zero
+        Given USB-A is mounted with 2 registered directories
+        And ~/Projects rsync fails (permission error)
+        When sync-usb.sh runs
+        Then ~/secureLocal syncs successfully
+        And the log records the ~/Projects failure with error details
+        And sync-usb.sh exits 1
+
+      Scenario: Two USB devices sync independently without interference
+        Given USB-A (home) and USB-B (office) are both registered
+        When USB-A mounts
+        Then only USB-A directories are synced (not USB-B's mount point)
+        And sync-usb.sh exits 0
+
+  - id: 3
+    name: Cloud Sync Fires (launchd timer)
+    trigger: launchd StartInterval fires sync-cloud.sh hourly, independent of USB state.
+    actor: launchd + sync-cloud.sh
+
+    shared_artifacts:
+      - name: cloud_remote
+        source: config.yaml:directories[*].cloud_remote
+        displayed_as: "${CLOUD_REMOTE}"
+        consumers:
+          - sync-cloud.sh (rclone target)
+      - name: rclone_bin
+        source: config.yaml:rclone_bin
+        displayed_as: "${RCLONE_BIN}"
+        consumers:
+          - sync-cloud.sh (executable path)
+
+    emotional_state:
+      entry: Unaware — Dan may be sleeping; cloud sync fires regardless
+      exit: Unaware — or: alert if exit 2 appears in log next morning
+
+    integration_checkpoint: >
+      Cloud sync plist (com.securelocal.cloud-sync.plist) uses StartInterval, NOT WatchPaths.
+      Must be independent of USB presence. Must NOT import USB sync plist logic.
+
+    failure_modes:
+      - Network unavailable — rclone fails; retry once after 30s; exit 2 if both fail
+      - rclone remote misconfigured — exit 4 (config error) with message pointing to rclone.conf
+      - Partial directory failure — same as USB: attempt all dirs; exit 2 after all
+
+    gherkin: |
+      Scenario: Cloud sync fires on schedule regardless of USB state
+        Given no USB device is mounted
+        And config.yaml maps [~/secureLocal, ~/Projects] to their respective cloud remotes
+        When the launchd hourly timer fires sync-cloud.sh
+        Then rclone syncs ~/secureLocal to remote-crypt:secureLocal
+        And rclone syncs ~/Projects to remote-crypt:Projects
+        And the log records success with timestamps
+        And sync-cloud.sh exits 0
+
+      Scenario: Cloud sync retries once on network failure
+        Given the network is unavailable when sync-cloud.sh fires
+        When sync-cloud.sh attempts rclone sync
+        Then it retries once after 30 seconds
+        And if the retry also fails, it logs "cloud sync failed after 2 attempts"
+        And sync-cloud.sh exits 2
+
+      Scenario: Cloud sync runs while USB sync is also in progress
+        Given USB-A has just mounted and sync-usb.sh is running
+        When the launchd cloud timer fires simultaneously
+        Then both scripts run independently without conflict
+        And each writes to the shared log file with non-interleaved entries
+
+  - id: 4
+    name: Dan Verifies Sync Ran
+    trigger: Dan checks the log file (manually, or notices an alert signal).
+    actor: Dan Fox
+
+    shared_artifacts:
+      - name: log_file
+        source: config.yaml:log_file
+        displayed_as: "~/Library/Logs/securelocal-sync.log"
+        consumers:
+          - Dan (tail, grep)
+
+    emotional_state:
+      entry: Mildly curious or alert (something prompted him to check)
+      exit: Relieved (success entries visible) or Methodical (failure found, starts recovery)
+
+    integration_checkpoint: >
+      Log entries must be human-readable with: timestamp | script name | directory | outcome | exit code.
+      Format must be grep-friendly for "ERROR" and "WARN" keywords.
+
+    failure_modes:
+      - Log file empty or missing — indicates launchd plist never fired
+      - All entries show exit 0 but sync actually did not run — Testing Theater risk
+
+    gherkin: |
+      Scenario: Dan confirms last sync succeeded by reading the log
+        Given sync-usb.sh ran 2 hours ago and exited 0
+        When Dan runs: tail -20 ~/Library/Logs/securelocal-sync.log
+        Then he sees timestamped entries for each synced directory
+        And the last entry shows "USB sync complete — exit 0"
+
+      Scenario: Dan discovers a cloud sync failure in the log
+        Given sync-cloud.sh exited 2 last night (network failure)
+        When Dan reviews the log
+        Then he sees: "[ERROR] Cloud sync failed: remote-crypt:secureLocal — rclone: connection refused"
+        And he sees: "Retry 2/2 also failed. Exit 2."
+        And he can rerun sync-cloud.sh manually to recover
+
+  - id: 5
+    name: Register New USB Device (Setup Journey)
+    trigger: Dan acquires a second USB drive and wants to register it.
+    actor: Dan Fox + installer or config editor
+
+    shared_artifacts:
+      - name: config_yaml
+        source: ~/.config/securelocal/config.yaml
+        displayed_as: "${CONFIG_PATH}"
+        consumers: [installer, sync-usb.sh, sync-cloud.sh]
+
+    emotional_state:
+      entry: Confident but cautious — "I want device 2 registered without breaking device 1"
+      exit: Confident — "Both devices are registered and I tested device 2 syncs correctly"
+
+    integration_checkpoint: >
+      Registration adds a new entry to config.yaml:usb_devices AND adds the new UUID
+      to the usb_devices list of each relevant directory. Device 1 config must be unchanged.
+      [DESIGN] The mechanism for obtaining the UUID is deferred to the DESIGN wave.
+
+    failure_modes:
+      - Duplicate UUID in config — should be detected and rejected
+      - New device added to usb_devices but not to directory mappings — dir never syncs
+      - Typo in UUID — device never matches on mount
+
+    gherkin: |
+      Scenario: Dan registers USB-B without disturbing USB-A config
+        Given USB-A (UUID-A) is registered and syncing correctly
+        When Dan registers USB-B (UUID-B) via the registration mechanism
+        Then config.yaml:usb_devices contains both UUID-A and UUID-B
+        And each directory's usb_devices list contains both UUIDs
+        And USB-A sync behaviour is unchanged after registration
+
+      Scenario: Duplicate UUID registration is rejected
+        Given UUID-A is already registered
+        When Dan attempts to register UUID-A again
+        Then the tool reports "UUID already registered" and exits without modifying config
+
+integration_validation:
+  shared_artifact_consistency:
+    - artifact: config.yaml
+      must_match_across: [1, 2, 3, 4, 5]
+      failure_message: >
+        If config.yaml format differs between scripts, one script will silently read
+        stale or empty values — the highest integration risk in this feature.
+    - artifact: log_file path
+      must_match_across: [2, 3, 4]
+      failure_message: >
+        If USB and cloud scripts write to different log files, Dan cannot get a single
+        view of sync health.
+    - artifact: exit codes
+      must_match_across: [2, 3]
+      failure_message: >
+        Inconsistent exit codes make launchd error detection and manual diagnosis ambiguous.
+
+changelog:
+  - date: 2026-05-15
+    feature: multi-usb-sync
+    change: Initial journey schema created. Q1-Q4 resolved. Config model: YAML, per-dir cloud_remote.

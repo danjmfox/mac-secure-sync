@@ -1,0 +1,65 @@
+schema_version: 1
+# Jobs-to-be-Done registry for mac-secure-sync
+# Bootstrapped during DISCUSS wave (multi-usb-sync feature) — no prior DISCOVER/DIVERGE wave
+# Source: spike learnings, docs/features.md, DR set, builder intent
+
+jobs:
+  - id: JOB-001
+    label: silent-guardian
+    statement: >
+      When I am working with sensitive data on my Mac,
+      I want it automatically backed up to encrypted USB and encrypted cloud
+      without manual intervention after initial setup,
+      so I can trust my data is safe from loss, theft, or corruption without
+      any ongoing cognitive load.
+    persona: builder-user
+    functional_dimension: automate backup to multiple encrypted targets
+    emotional_dimension: confidence that data is safe without thinking about it
+    social_dimension: personal — no sharing, no team
+    forces:
+      push: >
+        The current combined script couples USB and cloud sync to the same trigger
+        (USB mount), which means cloud sync is never triggered when USB is not present.
+        Manual sync is forgettable. Single-USB config breaks when a second drive is added.
+      pull: >
+        Automatic, event-driven sync that runs silently when the right USB plugs in.
+        Cloud sync running on its own schedule, independent of USB availability.
+        Config that cleanly supports multiple USB devices without restructuring.
+      anxiety: >
+        Automation running invisibly — how do I know it actually worked?
+        Wrong USB syncing to wrong directories.
+        Cloud sync failing silently for weeks while I believe data is safe.
+      habit: >
+        Manually running sync scripts or trusting the existing combined script.
+        Checking log files directly to verify success.
+    outcome_statements:
+      - minimize the likelihood of data loss due to missed sync
+      - minimize the time to detect a sync failure
+      - minimize the effort to add a second USB device to the sync setup
+      - maximize confidence that the last sync completed successfully
+
+  - id: JOB-002
+    label: multi-device-guardian
+    statement: >
+      When I acquire a second USB device,
+      I want to register it alongside the first without restructuring my entire config,
+      so I can maintain independent USB copies (e.g. home and office) with the same
+      automated sync guarantee.
+    persona: builder-user
+    functional_dimension: register multiple USB devices, each with their own directory mappings
+    emotional_dimension: confidence that adding a device does not break the existing setup
+    forces:
+      push: >
+        The current flat JOB_N_* config scheme requires restructuring the entire config
+        to add a second USB. There is no device-first model — each job has exactly one
+        USB UUID and one directory.
+      pull: >
+        A device registry where each USB is a named entry with its own directory list.
+        Adding device 2 does not touch device 1's config.
+      anxiety: >
+        Registering device 2 could accidentally overwrite or conflict with device 1 config.
+      habit: >
+        Adding a new JOB_4_* block manually and hoping it does not conflict.
+    outcome_statements:
+      - minimize the effort to register a second USB device
+      - minimize the risk that adding device 2 disrupts device 1 sync

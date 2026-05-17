@@ -231,7 +231,7 @@ NC='\033[0m'
 pass() {
     local test_name="$1"
     echo -e "${GREEN}PASS${NC} ${test_name}"
-    ((TESTS_PASSED++))
+    ((TESTS_PASSED++)) || true
 }
 
 fail() {
@@ -239,7 +239,7 @@ fail() {
     local reason="$2"
     echo -e "${RED}FAIL${NC} ${test_name}"
     echo "     Reason: ${reason}"
-    ((TESTS_FAILED++))
+    ((TESTS_FAILED++)) || true
 }
 
 assert_exit_code() {
@@ -350,7 +350,7 @@ assert_log_lines_all_timestamped() {
     local log_file="$1"
     local test_name="$2"
     local bad_line
-    bad_line=$(grep -v '^[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}T[0-9]\{2\}:[0-9]\{2\}:[0-9]\{2\}' "${log_file}" 2>/dev/null | grep -v '^$' | head -1)
+    bad_line=$(grep -v '^[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}T[0-9]\{2\}:[0-9]\{2\}:[0-9]\{2\}' "${log_file}" 2>/dev/null | grep -v '^$' | head -1 || true)
     if [[ -z "${bad_line}" ]]; then
         pass "${test_name}"
     else

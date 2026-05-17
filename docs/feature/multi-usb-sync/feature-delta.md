@@ -239,3 +239,116 @@ No new runtime dependencies introduced.
 | OQ-001 | Log rotation | Out of scope; document in README as future concern (macOS newsyslog) |
 | OQ-002 | python3 dependency check | Trivial; crafter adds to `check_dependencies()` during implementation |
 | OQ-003 | `sync_interval_seconds` plist regeneration | Crafter documents in `install.sh` help output — plist must be reloaded after config change |
+
+---
+
+## Wave: DISTILL / [REF] Scenario List
+
+Total scenarios: 43 across 7 feature files. Error/edge ratio: 19 error + edge scenarios of 43 total = 44% (above the 40% minimum).
+
+| Feature file | Stories | Scenarios | Error/edge |
+|---|---|---|---|
+| walking-skeleton.feature | US-001, US-002, US-003, US-004 | 3 | 0 (WS happy paths only) |
+| config-schema.feature | US-001 | 8 | 6 |
+| usb-sync.feature | US-002 | 10 | 6 |
+| cloud-sync.feature | US-003 | 8 | 5 |
+| structured-logging.feature | US-004 | 7 | 3 |
+| device-registration.feature | US-005 | 7 | 4 |
+| launchd-automation.feature | US-006 | 7 | 3 |
+| test-harness.feature | US-007 | 8 | 2 (isolation boundary) |
+
+All 7 user stories have at least one scenario. Walking skeleton tagged `@walking_skeleton @real-io`. Error path ratio: 44%.
+
+---
+
+## Wave: DISTILL / [REF] Walking Skeleton Strategy
+
+**Strategy C — Real local.** All resources are local to the test process; no containers or external services needed.
+
+| Resource | Strategy C implementation |
+|---|---|
+| config.yaml | Real file written to `mktemp -d` directory |
+| diskutil | Mock binary in temp PATH; returns UUID for specific volume paths |
+| rsync | Mock binary that delegates to real `/usr/bin/rsync` (real I/O) and records args |
+| rclone | Mock binary that records args and exits 0/1 (no real cloud access) |
+| Log file | Real file in temp directory |
+| launchctl | Mock binary recording load/unload calls |
+
+The walking skeleton test (`test_ws_usb_sync_copies_directory_to_drive`) exercises the full path from config read through UUID match through rsync (real file copy) to log write. Deletion test: removing `bin/sync-usb.sh` causes the test to fail with "file not found" — the test proves wiring, not just infrastructure.
+
+---
+
+## Wave: DISTILL / [REF] Adapter Coverage
+
+Every driven adapter from DESIGN has at least one `@real-io` scenario:
+
+| Adapter | Port contract | Covered by |
+|---|---|---|
+| `load_config()` (python3/YAML) | Config read port | config-schema.feature WS + all tests via `CONFIG_FILE` fixture |
+| `find_usb_by_uuid()` (diskutil) | USB detection port | walking-skeleton.feature + usb-sync.feature |
+| `sync_to_usb()` (rsync) | USB sync port | walking-skeleton.feature (real rsync via mock wrapper) |
+| `sync_to_cloud()` (rclone) | Cloud sync port | walking-skeleton.feature (cloud WS) + cloud-sync.feature |
+| Structured log writer (echo append) | Log port | walking-skeleton.feature + structured-logging.feature |
+| Atomic config write (temp-rename) | Config write port | device-registration.feature (atomic write + no .tmp remaining) |
+| `launchctl load/unload` | Plist management port | launchd-automation.feature |
+
+All 7 adapters covered. `@real-io` tag present on walking skeleton and adapter-specific integration scenarios.
+
+---
+
+## Wave: DISTILL / [REF] Scaffolds
+
+| File | Type | Status |
+|---|---|---|
+| `bin/sync-usb.sh` | RED scaffold | Created. Exits 1 with "NOT YET IMPLEMENTED". `# __SCAFFOLD__ = true` marker present. |
+| `bin/sync-cloud.sh` | RED scaffold | Created. Exits 1 with "NOT YET IMPLEMENTED". `# __SCAFFOLD__ = true` marker present. |
+
+Scaffolds are BROKEN-safe: both scripts exist and are executable, so test harness invocations return exit 1 (RED) not "command not found" (BROKEN).
+
+---
+
+## Wave: DISTILL / [REF] Test Placement
+
+```
+tests/acceptance/multi-usb-sync/
+  walking-skeleton.feature        -- WS scenarios; @walking_skeleton @real-io tags
+  config-schema.feature           -- US-001 scenarios
+  usb-sync.feature                -- US-002 scenarios
+  cloud-sync.feature              -- US-003 scenarios
+  structured-logging.feature      -- US-004 scenarios
+  device-registration.feature     -- US-005 scenarios
+  launchd-automation.feature      -- US-006 scenarios
+  test-harness.feature            -- US-007 scenarios
+  helpers.sh                      -- Shared mock factories and assertion helpers
+  run-tests.sh                    -- Main test runner; sources helpers.sh
+```
+
+Rationale: feature files in `tests/acceptance/` (documentation/specification); Bash implementations collocated as `run-tests.sh` + `helpers.sh`. This keeps Gherkin (human-readable spec) and executable Bash (machine-runnable) co-located without mixing into `bin/`.
+
+---
+
+## Wave: DISTILL / [REF] Driving Adapter Coverage
+
+Scenarios invoke through the driving ports identified in DESIGN:
+
+| Driving port | Surface | Tagged scenarios |
+|---|---|---|
+| USB mount event / manual | Shell — `sync-usb.sh` | walking-skeleton, usb-sync, structured-logging, test-harness |
+| Timer event / manual | Shell — `sync-cloud.sh` | walking-skeleton (cloud WS), cloud-sync, structured-logging |
+| Install / add-device | Shell — `install.sh add-device` | device-registration, launchd-automation |
+
+No internal component is tested directly. All scenarios enter through one of the three driving ports above.
+
+---
+
+## Wave: DISTILL / [REF] Pre-requisites
+
+Before DELIVER wave begins:
+
+1. `bin/sync-usb.sh` and `bin/sync-cloud.sh` scaffolds are in place (done — exits 1 RED).
+2. Walking skeleton test (`test_ws_usb_sync_copies_directory_to_drive`) is the only enabled test in `run-tests.sh`; all other test function calls are commented out.
+3. Crafter enables one test at a time, implements until GREEN, commits, then enables the next.
+4. `helpers.sh` provides `create_mock_config_yaml`, `create_mock_diskutil_multi`, `create_mock_rsync`, `create_mock_rclone`, `create_mock_launchctl` factories for all test scenarios.
+5. DEVOPS wave was not run; default environment matrix applies: clean-install | upgrade-from-v1 | stale-config.
+
+Back-propagation finding: The `load_config()` function (ADR-002) emits flat bash variables (`DIR_0_LOCAL_PATH`, `DIR_COUNT`, etc.). The test helpers write `config.yaml` as real YAML; the crafter must implement `load_config()` before any scenario that reads config can pass. This is correctly sequenced — walking skeleton depends on it, so it must be implemented first.

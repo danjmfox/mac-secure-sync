@@ -1,0 +1,61 @@
+{
+  "feature_id": "multi-usb-sync",
+  "goal": "Implement multi-USB sync with separated USB and cloud sync scripts and config.yaml v2",
+  "validation": { "status": "approved" },
+  "steps": [
+    {
+      "step_id": "01-01",
+      "name": "Implement sync-usb.sh",
+      "description": "Replace the RED scaffold in bin/sync-usb.sh with a working implementation. The script must: (1) call load_config() using a python3 one-liner that parses config.yaml and emits KEY=value pairs sourced into bash variables; (2) validate schema_version == 2, exit 4 on mismatch or missing/invalid config; (3) call find_usb_by_uuid() which scans ${SECURELOCAL_VOLUMES_BASE:-/Volumes} using diskutil to match each registered UUID; (4) for each matched mounted drive, call sync_to_usb(local_path, usb_target) per configured directory using rsync without --delete, with MAX_RETRIES=2 and 30s sleep between attempts; (5) write structured log entries in the format 'YYYY-MM-DDTHH:MM:SS INFO sync-usb DIR MESSAGE' to the configured log file; (6) exit 0 on full success, 1 if any USB sync fails after retries, 4 on config error. Unregistered drives must produce no sync calls and log 'no registered' to the log. The __SCAFFOLD__ marker must be removed.",
+      "files_to_modify": ["bin/sync-usb.sh"],
+      "test_file": "tests/acceptance/multi-usb-sync/run-tests.sh",
+      "scenario_name": "test_ws_usb_sync_copies_directory_to_drive",
+      "acceptance_criteria": [
+        "test_ws_usb_sync_copies_directory_to_drive: exits 0 and files are present at volume_path/secureLocal/file1.txt and file2.txt",
+        "test_ws_log_entry_is_timestamped_and_readable: log file exists and every line begins with an ISO 8601 timestamp",
+        "test_schema_version_mismatch_usb_exits_4: exits 4 when config.yaml contains schema_version != 2",
+        "test_missing_config_file_exits_4: exits 4 when CONFIG_FILE path does not exist",
+        "test_invalid_yaml_config_exits_4: exits 4 when config.yaml is malformed YAML",
+        "test_unregistered_usb_triggers_no_sync: exits 0, zero rsync calls, log contains 'no registered'",
+        "test_partial_directory_failure_exits_1: exits 1 when one source directory is missing; succeeding directory is still copied",
+        "test_usb_b_does_not_sync_to_usb_a_mount: rsync-calls.log contains IronKey-B and does not contain IronKey-A",
+        "test_mock_rsync_is_invoked_not_real_rsync: rsync-calls.log contains the configured LOCAL_DIR source path",
+        "test_each_test_gets_isolated_temp_directory: two consecutive setup calls produce different TEST_DIR values"
+      ],
+      "dependencies": [],
+      "estimated_hours": 2
+    },
+    {
+      "step_id": "01-02",
+      "name": "Implement sync-cloud.sh",
+      "description": "Replace the RED scaffold in bin/sync-cloud.sh with a working implementation. The script must: (1) contain its own load_config() function (duplicated from sync-usb.sh — not sourced from it, per DDD-007 script independence); (2) validate schema_version == 2, exit 4 on config error; (3) call sync_to_cloud(local_path, cloud_remote) for each configured directory using rclone sync, with MAX_RETRIES=2 and 30s sleep between attempts; (4) write structured log entries in the format 'YYYY-MM-DDTHH:MM:SS LEVEL sync-cloud DIR MESSAGE'; (5) exit 0 on full success, 2 if any cloud sync fails after retries. The script must run to completion without a USB drive present. The __SCAFFOLD__ marker must be removed.",
+      "files_to_modify": ["bin/sync-cloud.sh"],
+      "test_file": "tests/acceptance/multi-usb-sync/run-tests.sh",
+      "scenario_name": "test_ws_cloud_sync_runs_without_usb",
+      "acceptance_criteria": [
+        "test_ws_cloud_sync_runs_without_usb: exits 0 and rclone-calls.log contains 'remote-crypt:secureLocal' with no USB volume present",
+        "test_cloud_sync_calls_rclone_per_directory: exits 0, rclone-calls.log has exactly 2 entries, one containing 'remote-crypt:secureLocal' and one containing 'remote-crypt:Projects'",
+        "test_cloud_sync_failure_exits_2: exits 2 when mock rclone exits non-zero; log contains ERROR entry",
+        "test_schema_version_mismatch_cloud_exits_4: exits 4 when config.yaml contains schema_version != 2",
+        "test_log_error_entries_match_grep_pattern: log contains at least one ERROR line, all lines begin with a timestamp, no ANSI colour codes present"
+      ],
+      "dependencies": ["01-01"],
+      "estimated_hours": 1
+    },
+    {
+      "step_id": "02-01",
+      "name": "Extend install.sh",
+      "description": "Modify bin/install.sh to support config.yaml v2 and two independent launchd plists. Three changes are required: (1) Replace write_config_file(): write config.yaml v2 YAML structure (schema_version, directories[], usb_devices[]) to ${CONFIG_FILE} using atomic temp-rename (write to config.yaml.tmp in same directory, then mv); (2) Replace create_launch_agent(): install com.securelocal.usb-sync.plist (WatchPaths /Volumes, invokes sync-usb.sh) and com.securelocal.cloud-sync.plist (StartInterval from config sync_interval_seconds default 3600, invokes sync-cloud.sh) via launchctl load; remove old com.securelocal.sync.plist via launchctl unload if present; (3) Add add-device subcommand: when invoked as 'install.sh add-device --volume <path> --label <name>', extract UUID via diskutil info on the given volume path, check for duplicate UUID in existing config.yaml usb_devices[], reject with non-zero exit and unchanged config if duplicate, otherwise perform atomic temp-rename write of updated config.yaml. Add --non-interactive flag that skips all read -rp prompts for use by the test harness.",
+      "files_to_modify": ["bin/install.sh"],
+      "test_file": "tests/acceptance/multi-usb-sync/run-tests.sh",
+      "scenario_name": "test_both_plists_recorded_by_launchctl",
+      "acceptance_criteria": [
+        "test_duplicate_uuid_registration_rejected: 'install.sh add-device' exits non-zero when UUID already present; config file content is byte-identical before and after",
+        "test_atomic_write_leaves_no_temp_file: no config.yaml.tmp file exists in the config directory after a successful add-device invocation",
+        "test_both_plists_recorded_by_launchctl: launchctl-calls.log contains 'com.securelocal.usb-sync' and 'com.securelocal.cloud-sync' after 'install.sh --non-interactive'"
+      ],
+      "dependencies": ["01-01", "01-02"],
+      "estimated_hours": 2
+    }
+  ]
+}

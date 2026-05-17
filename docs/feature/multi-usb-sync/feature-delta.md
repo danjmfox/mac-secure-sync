@@ -352,3 +352,59 @@ Before DELIVER wave begins:
 5. DEVOPS wave was not run; default environment matrix applies: clean-install | upgrade-from-v1 | stale-config.
 
 Back-propagation finding: The `load_config()` function (ADR-002) emits flat bash variables (`DIR_0_LOCAL_PATH`, `DIR_COUNT`, etc.). The test helpers write `config.yaml` as real YAML; the crafter must implement `load_config()` before any scenario that reads config can pass. This is correctly sequenced — walking skeleton depends on it, so it must be implemented first.
+
+---
+
+## Wave: DELIVER / [REF] Implementation Summary
+
+Three Bash scripts implemented via Outside-In TDD using the existing mock-binary test harness. All 38 acceptance tests GREEN. The `sync-to-usb-and-cloud.sh` combined script is superseded but not deleted — removal is deferred (no consumers identified, low risk).
+
+## Wave: DELIVER / [REF] Files Modified
+
+**Production:**
+- `bin/sync-usb.sh` — replaced RED scaffold; full implementation (load_config, find_usb_by_uuid, sync_to_usb, structured logging)
+- `bin/sync-cloud.sh` — replaced RED scaffold; full implementation (load_config duplicated, sync_to_cloud, structured logging)
+- `bin/install.sh` — extended; write_config_file (YAML v2), create_launch_agent (2 plists), add-device subcommand, --non-interactive flag
+
+**Tests:**
+- `tests/acceptance/multi-usb-sync/run-tests.sh` — all 38 test functions enabled (none commented out)
+
+## Wave: DELIVER / [REF] Scenarios Green Count
+
+38 of 38 — 2026-05-17
+
+| Step | Tests | Result |
+|------|-------|--------|
+| 01-01 sync-usb.sh | 19 | PASS |
+| 01-02 sync-cloud.sh | 13 (32 total) | PASS |
+| 02-01 install.sh | 6 (38 total) | PASS |
+
+## Wave: DELIVER / [REF] DoD Check
+
+| Item | Status |
+|------|--------|
+| All AC testable and verified | PASS — 38 tests GREEN |
+| Walking skeleton end-to-end | PASS — config.yaml v2 + sync-usb.sh + sync-cloud.sh |
+| Elevator pitch demo commands executable | PASS — sync-usb.sh and sync-cloud.sh invocable |
+| No __SCAFFOLD__ markers in production | PASS — verified pre-commit |
+| Structured log grep-friendly | PASS — ISO8601 LEVEL SCRIPT DIR MSG |
+| Exit codes consistent | PASS — 0/1/2/4 per AC |
+| Config atomic writes | PASS — temp-rename pattern in add-device |
+| Scripts independent (no cross-import) | PASS — sync-cloud.sh has no USB logic |
+
+## Wave: DELIVER / [REF] Quality Gates
+
+| Gate | Status | Notes |
+|------|--------|-------|
+| Roadmap created | PASS | 3 steps, approved |
+| Per-step 5-phase TDD | PASS | All steps PREPARE→RED→GREEN→COMMIT |
+| Acceptance suite GREEN | PASS | 38/38 |
+| Adversarial review | SKIPPED | Hobby project — on-demand only |
+| Mutation testing | SKIPPED | On-demand per project rigor profile |
+| DES integrity | PASS | All phases logged via des-log-phase CLI |
+
+## Wave: DELIVER / [REF] Pre-requisites
+
+- DISTILL: 8 .feature files + run-tests.sh (38 test functions)
+- DESIGN: ADR-001 (YAML v2), ADR-002 (python3 parse-once), ADR-003 (add-device subcommand)
+- Existing: rsync, rclone, diskutil, python3 (macOS system), launchd

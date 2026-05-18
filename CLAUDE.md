@@ -21,8 +21,9 @@ Use `@nw-software-crafter` for implementation tasks.
 See `docs/product/architecture/brief.md` for full architecture.
 See `docs/product/architecture/c4-diagrams.md` for C4 diagrams.
 
-## Active Feature
+## Shipped Features
 
-Branch: `feat/multi-usb-sync`
-Wave progress: DISCUSS ✓ | DESIGN ✓ | DISTILL → | DELIVER →
-Artifacts: `docs/feature/multi-usb-sync/`
+### multi-usb-sync (2026-05-17)
+Wave progress: DISCUSS ✓ | DESIGN ✓ | DISTILL ✓ | DELIVER ✓
+Evolution: `docs/evolution/2026-05-17-multi-usb-sync.md`
+Tests: 38/38 GREEN — `tests/acceptance/multi-usb-sync/run-tests.sh`

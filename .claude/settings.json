@@ -1,0 +1,96 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "PYTHONPATH=$HOME/.claude/lib/python $HOME/.local/pipx/venvs/nwave-ai/bin/python -m des.adapters.drivers.hooks.claude_code_hook_adapter post-tool-use"
+          }
+        ],
+        "matcher": "Agent"
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "PYTHONPATH=$HOME/.claude/lib/python $HOME/.local/pipx/venvs/nwave-ai/bin/python -m des.adapters.drivers.hooks.claude_code_hook_adapter subagent-start"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "PYTHONPATH=$HOME/.claude/lib/python $HOME/.local/pipx/venvs/nwave-ai/bin/python -m des.adapters.drivers.hooks.claude_code_hook_adapter subagent-stop"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "PYTHONPATH=$HOME/.claude/lib/python $HOME/.local/pipx/venvs/nwave-ai/bin/python -m des.adapters.drivers.hooks.claude_code_hook_adapter deliver-progress"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "PYTHONPATH=$HOME/.claude/lib/python $HOME/.local/pipx/venvs/nwave-ai/bin/python -m des.adapters.drivers.hooks.claude_code_hook_adapter pre-task"
+          }
+        ],
+        "matcher": "Agent"
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "INPUT=$(cat); echo \"$INPUT\" | grep -q 'execution-log\\.json' && { echo \"$INPUT\" | PYTHONPATH=$HOME/.claude/lib/python $HOME/.local/pipx/venvs/nwave-ai/bin/python -m des.adapters.drivers.hooks.claude_code_hook_adapter pre-write; exit $?; }; test -f .nwave/des/deliver-session.json || exit 0; echo \"$INPUT\" | PYTHONPATH=$HOME/.claude/lib/python $HOME/.local/pipx/venvs/nwave-ai/bin/python -m des.adapters.drivers.hooks.claude_code_hook_adapter pre-write"
+          }
+        ],
+        "matcher": "Write"
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "INPUT=$(cat); echo \"$INPUT\" | grep -q 'execution-log\\.json' && { echo \"$INPUT\" | PYTHONPATH=$HOME/.claude/lib/python $HOME/.local/pipx/venvs/nwave-ai/bin/python -m des.adapters.drivers.hooks.claude_code_hook_adapter pre-edit; exit $?; }; test -f .nwave/des/deliver-session.json || exit 0; echo \"$INPUT\" | PYTHONPATH=$HOME/.claude/lib/python $HOME/.local/pipx/venvs/nwave-ai/bin/python -m des.adapters.drivers.hooks.claude_code_hook_adapter pre-edit"
+          }
+        ],
+        "matcher": "Edit"
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "# des-hook:pre-bash\nINPUT=$(cat); CMD=$(echo \"$INPUT\" | python3 -c \"import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('command',''))\"); echo \"$CMD\" | grep -q 'execution-log' || exit 0; echo \"$CMD\" | grep -qE 'des\\.cli\\.(log_phase|init_log|verify_deliver_integrity)' && exit 0; echo '{\"decision\":\"block\",\"reason\":\"Direct modification of execution-log.json via Bash is blocked.\\nTo read it, use the Read tool.\\nTo modify it, use des.cli.log_phase.\"}'; exit 2"
+          }
+        ],
+        "matcher": "Bash"
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "PYTHONPATH=$HOME/.claude/lib/python $HOME/.local/pipx/venvs/nwave-ai/bin/python -m des.adapters.drivers.hooks.claude_code_hook_adapter session-start"
+          }
+        ],
+        "matcher": "startup"
+      }
+    ]
+  },
+  "env": {
+    "SLASH_COMMAND_TOOL_CHAR_BUDGET": "100000",
+    "PATH": "/Users/danielosborne/projects/mac-secure-sync/.claude/bin:/Users/danielosborne/Library/pnpm:/Users/danielosborne/.local/share/mise/installs/node/22/bin:/Users/danielosborne/.local/share/mise/installs/python/3.12/bin:/Users/danielosborne/.local/share/mise/installs/trunk/latest/bin:/Users/danielosborne/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/Applications/Obsidian.app/Contents/MacOS:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/opt/X11/bin:/Library/Apple/usr/bin:/usr/local/git/bin:/Users/danielosborne/.local/bin:/Users/danielosborne/.local/bin:/Users/danielosborne/.nvm/versions/node/v18.20.8/bin:/Users/danielosborne/.nvm/versions/node/v23.1.0/bin:/Users/danielosborne/.nvm/versions/node/v23.2.0/bin:/Users/danielosborne/.nvm/versions/node/v24.10.0/bin:/Users/danielosborne/.nvm/versions/node/v24.2.0/bin:/Users/danielosborne/.nvm/versions/node/v25.1.0/bin:/Users/danielosborne/.nvm/versions/node/v25.2.1/bin:/Users/danielosborne/.local/share/mise/shims:/Users/danielosborne/.rd/bin:/Users/danielosborne/Library/Application Support/Claude/local-agent-mode-sessions/skills-plugin/a49b09ca-da6f-4899-986e-22e2c431f8c6/6177a839-b8b8-448a-ad56-1419139d5e95/bin:/Users/danielosborne/Library/Application Support/Claude/local-agent-mode-sessions/6177a839-b8b8-448a-ad56-1419139d5e95/a49b09ca-da6f-4899-986e-22e2c431f8c6/rpm/plugin_0155zZVATbJU3jHUmPP9NvMC/bin:/Users/danielosborne/Library/Application Support/Claude/local-agent-mode-sessions/6177a839-b8b8-448a-ad56-1419139d5e95/a49b09ca-da6f-4899-986e-22e2c431f8c6/rpm/plugin_019iPNgSpqW7kdNT72VAaUud/bin:/Users/danielosborne/Library/Application Support/Claude/local-agent-mode-sessions/6177a839-b8b8-448a-ad56-1419139d5e95/a49b09ca-da6f-4899-986e-22e2c431f8c6/rpm/plugin_01XXJmxLXPEhPMmnxmrgntNw/bin:/Users/danielosborne/.claude/plugins/cache/knowledge-work-plugins/engineering/1.2.0/bin:/Users/danielosborne/.claude/plugins/cache/claude-plugins-official/gitlab/unknown/bin"
+  }
+}

@@ -1,0 +1,24 @@
+nWave Framework Installation Manifest
+========================================
+Installed: 2026-05-15 20:45:11
+Source: /Users/danielosborne/.local/pipx/venvs/nwave-ai/lib/python3.12/site-packages/scripts/install
+Version: Production Ready
+
+Installation Summary:
+- Total agents: 32
+- Total commands: 0
+- Installation directory: /Users/danielosborne/projects/mac-secure-sync/.claude
+- Backup directory: /Users/danielosborne/projects/mac-secure-sync/.claude/backups/nwave-install-20260515-204510
+
+Framework Components:
+- 41+ specialized AI agents with Single Responsibility Principle
+- Wave processing architecture with clean context isolation
+- Essential DW commands: discuss, design, distill, develop, deliver
+- Quality validation network with Level 1-6 refactoring
+
+Usage:
+- Use nWave commands: '/nw-discuss', '/nw-design', '/nw-distill', '/nw-develop', '/nw-deliver'
+- Use '/nw-start "feature description"' to initialize nWave workflow
+- All agents available globally across projects
+
+For help: https://github.com/nWave-ai/nWave

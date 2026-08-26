@@ -16,6 +16,12 @@ SYNC_USB_SCRIPT="${INSTALL_DIR}/bin/sync-usb.sh"
 SYNC_CLOUD_SCRIPT="${INSTALL_DIR}/bin/sync-cloud.sh"
 NON_INTERACTIVE=false
 
+# --------------------------------------------------------------------
+# Shared library (ADR-004)
+# --------------------------------------------------------------------
+# shellcheck source=lib/usb-common.sh
+source "${INSTALL_DIR}/bin/lib/usb-common.sh"
+
 mkdir -p "$(dirname "${LOG_FILE}")" "$(dirname "${CONFIG_FILE}")" "${LAUNCH_AGENTS_DIR}"
 
 # --------------------------------------------------------------------
@@ -425,8 +431,8 @@ PYEOF
 # --------------------------------------------------------------------
 # list-devices subcommand
 # Usage: install.sh list-devices
-# Read-only: enumerates usb_devices[] from config.yaml. No mount-state
-# lookup yet — that lands in step 02-02 (ADR-004 shared matching library).
+# Read-only: enumerates usb_devices[] from config.yaml and reports live
+# mount state via find_usb_by_uuid() (ADR-004 shared matching library).
 # --------------------------------------------------------------------
 cmd_list_devices() {
     if [[ ! -f "${CONFIG_FILE}" ]]; then
@@ -434,7 +440,8 @@ cmd_list_devices() {
         exit 4
     fi
 
-    python3 - <<PYEOF
+    local config_output
+    config_output=$(python3 - <<PYEOF
 import sys
 
 config_path = "${CONFIG_FILE}"
@@ -453,17 +460,43 @@ with open(config_path) as f:
         sys.exit(4)
 
 usb_devices = cfg.get('usb_devices', []) if cfg else []
-
-if not usb_devices:
-    print("No USB devices registered. Run 'install.sh add-device' to register one.")
-    sys.exit(0)
-
-for device in usb_devices:
-    print(f"  {device.get('label', '?')}  ({device.get('id', '?')})")
-
-print(f"{len(usb_devices)} devices registered")
+print(f"USB_DEVICE_COUNT={len(usb_devices)}")
+for i, device in enumerate(usb_devices):
+    print(f"USB_DEVICE_{i}_ID='{device.get('id','')}'")
+    print(f"USB_DEVICE_{i}_LABEL='{device.get('label','')}'")
 PYEOF
-    exit $?
+)
+    local py_exit=$?
+    if [[ ${py_exit} -ne 0 ]]; then
+        exit ${py_exit}
+    fi
+
+    eval "${config_output}"
+
+    if [[ "${USB_DEVICE_COUNT:-0}" -eq 0 ]]; then
+        echo "No USB devices registered. Run 'install.sh add-device' to register one."
+        exit 0
+    fi
+
+    local volumes_base="${SECURELOCAL_VOLUMES_BASE:-/Volumes}"
+    local idx=0
+    while [[ ${idx} -lt ${USB_DEVICE_COUNT} ]]; do
+        local id_var="USB_DEVICE_${idx}_ID"
+        local label_var="USB_DEVICE_${idx}_LABEL"
+        local uuid="${!id_var}"
+        local label="${!label_var}"
+        local mount_path
+        mount_path=$(find_usb_by_uuid "${uuid}" "${volumes_base}")
+        if [[ -n "${mount_path}" ]]; then
+            echo "  ${label}  (${uuid})  mounted at ${mount_path}"
+        else
+            echo "  ${label}  (${uuid})  not mounted"
+        fi
+        ((idx++))
+    done
+
+    echo "${USB_DEVICE_COUNT} devices registered"
+    exit 0
 }
 
 # --------------------------------------------------------------------

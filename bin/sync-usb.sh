@@ -22,6 +22,13 @@ VOLUMES_BASE="${SECURELOCAL_VOLUMES_BASE:-/Volumes}"
 MAX_RETRIES=2
 
 # ---------------------------------------------------------------------------
+# Shared library (ADR-004)
+# ---------------------------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/usb-common.sh
+source "${SCRIPT_DIR}/lib/usb-common.sh"
+
+# ---------------------------------------------------------------------------
 # Logging — YYYY-MM-DDTHH:MM:SS LEVEL sync-usb DIR MESSAGE
 # ---------------------------------------------------------------------------
 log_info() {
@@ -82,31 +89,6 @@ except SystemExit:
 except Exception:
     sys.exit(4)
 PYEOF
-}
-
-# ---------------------------------------------------------------------------
-# find_usb_by_uuid — scan VOLUMES_BASE, return mount path matching uuid
-# Returns empty string if not found
-# ---------------------------------------------------------------------------
-find_usb_by_uuid() {
-    local uuid="$1"
-    local volumes_base="$2"
-
-    if [[ ! -d "${volumes_base}" ]]; then
-        return 0
-    fi
-
-    for volume in "${volumes_base}"/*/; do
-        if [[ -d "${volume}" ]]; then
-            local vol_path="${volume%/}"
-            local vol_uuid
-            vol_uuid=$(diskutil info "${vol_path}" 2>/dev/null | grep "Volume UUID" | awk '{print $3}' || true)
-            if [[ "${vol_uuid}" == "${uuid}" ]]; then
-                echo "${vol_path}"
-                return 0
-            fi
-        fi
-    done
 }
 
 # ---------------------------------------------------------------------------

@@ -349,7 +349,7 @@ cmd_remove_device() {
 
     if [[ ! -f "${CONFIG_FILE}" ]]; then
         log_err "Config file not found: ${CONFIG_FILE}"
-        exit 1
+        exit 4
     fi
 
     python3 - <<PYEOF
@@ -369,7 +369,11 @@ except ImportError:
     sys.exit(1)
 
 with open(config_path) as f:
-    cfg = yaml.safe_load(f)
+    try:
+        cfg = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        print(f"ERROR: config.yaml is malformed: {e}", file=sys.stderr)
+        sys.exit(4)
 
 # Step 1: compute the mutated config, separable from the write step so a
 # future story can insert a step between compute and write (OQ-004).
@@ -395,7 +399,7 @@ mutated_cfg, remaining_count = compute_mutated_config(cfg, match_field, match_va
 if mutated_cfg is None:
     print(f"ERROR: no registered device matches {match_field}={match_value!r}. "
           f"Run 'install.sh list-devices' to see registered devices.", file=sys.stderr)
-    sys.exit(3)
+    sys.exit(2)
 
 # Step 2: atomic write — write to .tmp then rename.
 tmp_path = config_path + ".tmp"

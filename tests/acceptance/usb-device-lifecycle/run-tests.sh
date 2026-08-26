@@ -630,9 +630,13 @@ test_remove_device_unknown_label_leaves_config_untouched
 # ENABLED — step 01-05
 test_remove_device_unknown_uuid_leaves_config_untouched
 
+# ENABLED — step 01-06
+test_remove_device_missing_config_exits_config_error
+
+# ENABLED — step 01-06
+test_remove_device_malformed_config_exits_config_error
+
 # SKIP — enable one at a time after the walking skeleton passes
-# test_remove_device_missing_config_exits_config_error
-# test_remove_device_malformed_config_exits_config_error
 # test_remove_device_requires_an_identifier
 # test_remove_device_rejects_both_label_and_uuid
 # test_remove_device_writes_config_atomically

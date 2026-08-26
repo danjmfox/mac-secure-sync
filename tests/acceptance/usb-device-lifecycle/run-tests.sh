@@ -621,8 +621,10 @@ test_remove_device_strips_uuid_from_every_directory_mapping
 # ENABLED — step 01-03
 test_remove_device_by_uuid_matches_removal_by_label
 
+# ENABLED — step 01-04
+test_remove_device_leaves_empty_directory_list_not_error
+
 # SKIP — enable one at a time after the walking skeleton passes
-# test_remove_device_leaves_empty_directory_list_not_error
 # test_remove_device_unknown_label_leaves_config_untouched
 # test_remove_device_unknown_uuid_leaves_config_untouched
 # test_remove_device_missing_config_exits_config_error

@@ -663,8 +663,10 @@ test_list_devices_missing_config_exits_config_error
 # ENABLED — step 02-05
 test_list_devices_malformed_config_exits_config_error
 
+# ENABLED — step 02-06
+test_list_devices_handles_unresolvable_mount_query
+
 # SKIP — enable one at a time after the walking skeleton passes
-# test_list_devices_handles_unresolvable_mount_query
 # test_list_devices_never_modifies_config
 # test_list_devices_agrees_with_sync_usb_on_mount_state
 

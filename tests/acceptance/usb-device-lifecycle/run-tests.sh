@@ -669,7 +669,7 @@ test_list_devices_handles_unresolvable_mount_query
 # ENABLED — step 02-07
 test_list_devices_never_modifies_config
 
-# SKIP — enable one at a time after the walking skeleton passes
-# test_list_devices_agrees_with_sync_usb_on_mount_state
+# ENABLED — step 02-08 (FINAL step — ADR-004 regression probe)
+test_list_devices_agrees_with_sync_usb_on_mount_state
 
 print_summary

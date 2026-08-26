@@ -370,8 +370,16 @@ with open(config_path) as f:
 # future story can insert a step between compute and write (OQ-004).
 def compute_mutated_config(cfg, target_label):
     usb_devices = cfg.get('usb_devices', [])
+    removed_ids = [d.get('id') for d in usb_devices if d.get('label') == target_label]
     remaining = [d for d in usb_devices if d.get('label') != target_label]
     cfg['usb_devices'] = remaining
+
+    directories = cfg.get('directories', [])
+    for directory in directories:
+        dir_usb = directory.get('usb_devices', [])
+        directory['usb_devices'] = [uuid for uuid in dir_usb if uuid not in removed_ids]
+    cfg['directories'] = directories
+
     return cfg, len(remaining)
 
 mutated_cfg, remaining_count = compute_mutated_config(cfg, target_label)

@@ -333,14 +333,16 @@ PYEOF
 
 # --------------------------------------------------------------------
 # remove-device subcommand
-# Usage: install.sh remove-device --label <name>
+# Usage: install.sh remove-device --label <name> | --uuid <id>
 # --------------------------------------------------------------------
 cmd_remove_device() {
     local label=""
+    local uuid=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --label) label="$2"; shift 2 ;;
+            --uuid) uuid="$2"; shift 2 ;;
             *) log_err "Unknown remove-device option: $1"; exit 1 ;;
         esac
     done
@@ -356,6 +358,9 @@ import os
 
 config_path = "${CONFIG_FILE}"
 target_label = "${label}"
+target_uuid = "${uuid}"
+match_field = 'id' if target_uuid else 'label'
+match_value = target_uuid if target_uuid else target_label
 
 try:
     import yaml
@@ -368,10 +373,10 @@ with open(config_path) as f:
 
 # Step 1: compute the mutated config, separable from the write step so a
 # future story can insert a step between compute and write (OQ-004).
-def compute_mutated_config(cfg, target_label):
+def compute_mutated_config(cfg, match_field, match_value):
     usb_devices = cfg.get('usb_devices', [])
-    removed_ids = [d.get('id') for d in usb_devices if d.get('label') == target_label]
-    remaining = [d for d in usb_devices if d.get('label') != target_label]
+    removed_ids = [d.get('id') for d in usb_devices if d.get(match_field) == match_value]
+    remaining = [d for d in usb_devices if d.get(match_field) != match_value]
     cfg['usb_devices'] = remaining
 
     directories = cfg.get('directories', [])
@@ -382,7 +387,7 @@ def compute_mutated_config(cfg, target_label):
 
     return cfg, len(remaining)
 
-mutated_cfg, remaining_count = compute_mutated_config(cfg, target_label)
+mutated_cfg, remaining_count = compute_mutated_config(cfg, match_field, match_value)
 
 # Step 2: atomic write — write to .tmp then rename.
 tmp_path = config_path + ".tmp"

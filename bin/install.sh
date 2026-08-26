@@ -347,6 +347,16 @@ cmd_remove_device() {
         esac
     done
 
+    if [[ -z "${label}" ]] && [[ -z "${uuid}" ]]; then
+        log_err "remove-device requires either --label <name> or --uuid <id>"
+        exit 2
+    fi
+
+    if [[ -n "${label}" ]] && [[ -n "${uuid}" ]]; then
+        log_err "remove-device accepts either --label or --uuid, not both"
+        exit 2
+    fi
+
     if [[ ! -f "${CONFIG_FILE}" ]]; then
         log_err "Config file not found: ${CONFIG_FILE}"
         exit 4

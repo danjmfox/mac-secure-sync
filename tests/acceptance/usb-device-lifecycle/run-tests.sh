@@ -636,9 +636,13 @@ test_remove_device_missing_config_exits_config_error
 # ENABLED — step 01-06
 test_remove_device_malformed_config_exits_config_error
 
+# ENABLED — step 01-07
+test_remove_device_requires_an_identifier
+
+# ENABLED — step 01-07
+test_remove_device_rejects_both_label_and_uuid
+
 # SKIP — enable one at a time after the walking skeleton passes
-# test_remove_device_requires_an_identifier
-# test_remove_device_rejects_both_label_and_uuid
 # test_remove_device_writes_config_atomically
 # test_ws_list_devices_shows_every_registered_device
 # test_mounted_device_shows_live_mount_path

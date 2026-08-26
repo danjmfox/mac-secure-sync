@@ -376,6 +376,9 @@ with open(config_path) as f:
 def compute_mutated_config(cfg, match_field, match_value):
     usb_devices = cfg.get('usb_devices', [])
     removed_ids = [d.get('id') for d in usb_devices if d.get(match_field) == match_value]
+    if not removed_ids:
+        return None, 0
+
     remaining = [d for d in usb_devices if d.get(match_field) != match_value]
     cfg['usb_devices'] = remaining
 
@@ -388,6 +391,11 @@ def compute_mutated_config(cfg, match_field, match_value):
     return cfg, len(remaining)
 
 mutated_cfg, remaining_count = compute_mutated_config(cfg, match_field, match_value)
+
+if mutated_cfg is None:
+    print(f"ERROR: no registered device matches {match_field}={match_value!r}. "
+          f"Run 'install.sh list-devices' to see registered devices.", file=sys.stderr)
+    sys.exit(3)
 
 # Step 2: atomic write — write to .tmp then rename.
 tmp_path = config_path + ".tmp"

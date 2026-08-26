@@ -645,8 +645,10 @@ test_remove_device_rejects_both_label_and_uuid
 # ENABLED — step 01-08 (final step of Phase 01, completes US-101)
 test_remove_device_writes_config_atomically
 
+# ENABLED — step 02-01 (walking skeleton, list-devices)
+test_ws_list_devices_shows_every_registered_device
+
 # SKIP — enable one at a time after the walking skeleton passes
-# test_ws_list_devices_shows_every_registered_device
 # test_mounted_device_shows_live_mount_path
 # test_unmounted_device_shows_not_mounted
 # test_list_devices_empty_registry_shows_helpful_message

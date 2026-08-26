@@ -423,6 +423,50 @@ PYEOF
 }
 
 # --------------------------------------------------------------------
+# list-devices subcommand
+# Usage: install.sh list-devices
+# Read-only: enumerates usb_devices[] from config.yaml. No mount-state
+# lookup yet — that lands in step 02-02 (ADR-004 shared matching library).
+# --------------------------------------------------------------------
+cmd_list_devices() {
+    if [[ ! -f "${CONFIG_FILE}" ]]; then
+        log_err "Config file not found: ${CONFIG_FILE}"
+        exit 4
+    fi
+
+    python3 - <<PYEOF
+import sys
+
+config_path = "${CONFIG_FILE}"
+
+try:
+    import yaml
+except ImportError:
+    print("ERROR: python3 yaml module not available", file=sys.stderr)
+    sys.exit(1)
+
+with open(config_path) as f:
+    try:
+        cfg = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        print(f"ERROR: config.yaml is malformed: {e}", file=sys.stderr)
+        sys.exit(4)
+
+usb_devices = cfg.get('usb_devices', []) if cfg else []
+
+if not usb_devices:
+    print("No USB devices registered. Run 'install.sh add-device' to register one.")
+    sys.exit(0)
+
+for device in usb_devices:
+    print(f"  {device.get('label', '?')}  ({device.get('id', '?')})")
+
+print(f"{len(usb_devices)} devices registered")
+PYEOF
+    exit $?
+}
+
+# --------------------------------------------------------------------
 # Main
 # --------------------------------------------------------------------
 main() {
@@ -449,13 +493,10 @@ main() {
         exit $?
     fi
 
-    # RED-scaffold stub (usb-device-lifecycle, US-102): subcommand not yet
-    # implemented. Prevents falling through to the interactive install flow
-    # (which would block on `read -rp` in tests). DELIVER replaces this with
-    # cmd_list_devices().
     if [[ "${1:-}" == "list-devices" ]]; then
-        log_err "list-devices: not yet implemented"
-        exit 2
+        shift
+        cmd_list_devices "$@"
+        exit $?
     fi
 
     log_section "SecureLocal Installer Started"

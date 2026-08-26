@@ -332,6 +332,62 @@ PYEOF
 }
 
 # --------------------------------------------------------------------
+# remove-device subcommand
+# Usage: install.sh remove-device --label <name>
+# --------------------------------------------------------------------
+cmd_remove_device() {
+    local label=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --label) label="$2"; shift 2 ;;
+            *) log_err "Unknown remove-device option: $1"; exit 1 ;;
+        esac
+    done
+
+    if [[ ! -f "${CONFIG_FILE}" ]]; then
+        log_err "Config file not found: ${CONFIG_FILE}"
+        exit 1
+    fi
+
+    python3 - <<PYEOF
+import sys
+import os
+
+config_path = "${CONFIG_FILE}"
+target_label = "${label}"
+
+try:
+    import yaml
+except ImportError:
+    print("ERROR: python3 yaml module not available", file=sys.stderr)
+    sys.exit(1)
+
+with open(config_path) as f:
+    cfg = yaml.safe_load(f)
+
+# Step 1: compute the mutated config, separable from the write step so a
+# future story can insert a step between compute and write (OQ-004).
+def compute_mutated_config(cfg, target_label):
+    usb_devices = cfg.get('usb_devices', [])
+    remaining = [d for d in usb_devices if d.get('label') != target_label]
+    cfg['usb_devices'] = remaining
+    return cfg, len(remaining)
+
+mutated_cfg, remaining_count = compute_mutated_config(cfg, target_label)
+
+# Step 2: atomic write — write to .tmp then rename.
+tmp_path = config_path + ".tmp"
+with open(tmp_path, 'w') as f:
+    yaml.dump(mutated_cfg, f, default_flow_style=False, allow_unicode=True)
+os.rename(tmp_path, config_path)
+print(f"{remaining_count} devices remain registered")
+PYEOF
+    local py_exit=$?
+    exit ${py_exit}
+}
+
+# --------------------------------------------------------------------
 # Main
 # --------------------------------------------------------------------
 main() {
@@ -350,6 +406,21 @@ main() {
         shift
         cmd_add_device "$@"
         exit $?
+    fi
+
+    if [[ "${1:-}" == "remove-device" ]]; then
+        shift
+        cmd_remove_device "$@"
+        exit $?
+    fi
+
+    # RED-scaffold stub (usb-device-lifecycle, US-102): subcommand not yet
+    # implemented. Prevents falling through to the interactive install flow
+    # (which would block on `read -rp` in tests). DELIVER replaces this with
+    # cmd_list_devices().
+    if [[ "${1:-}" == "list-devices" ]]; then
+        log_err "list-devices: not yet implemented"
+        exit 2
     fi
 
     log_section "SecureLocal Installer Started"

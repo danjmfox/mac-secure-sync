@@ -654,8 +654,10 @@ test_mounted_device_shows_live_mount_path
 # ENABLED — step 02-03
 test_unmounted_device_shows_not_mounted
 
+# ENABLED — step 02-04
+test_list_devices_empty_registry_shows_helpful_message
+
 # SKIP — enable one at a time after the walking skeleton passes
-# test_list_devices_empty_registry_shows_helpful_message
 # test_list_devices_missing_config_exits_config_error
 # test_list_devices_malformed_config_exits_config_error
 # test_list_devices_handles_unresolvable_mount_query

@@ -651,8 +651,10 @@ test_ws_list_devices_shows_every_registered_device
 # ENABLED — step 02-02 (ADR-004 shared usb-common.sh library)
 test_mounted_device_shows_live_mount_path
 
+# ENABLED — step 02-03
+test_unmounted_device_shows_not_mounted
+
 # SKIP — enable one at a time after the walking skeleton passes
-# test_unmounted_device_shows_not_mounted
 # test_list_devices_empty_registry_shows_helpful_message
 # test_list_devices_missing_config_exits_config_error
 # test_list_devices_malformed_config_exits_config_error

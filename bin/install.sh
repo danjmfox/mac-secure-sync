@@ -255,6 +255,17 @@ EOF
 }
 
 # --------------------------------------------------------------------
+# require_config_file — exit with the given code if CONFIG_FILE is absent
+# --------------------------------------------------------------------
+require_config_file() {
+    local exit_code="$1"
+    if [[ ! -f "${CONFIG_FILE}" ]]; then
+        log_err "Config file not found: ${CONFIG_FILE}"
+        exit "${exit_code}"
+    fi
+}
+
+# --------------------------------------------------------------------
 # add-device subcommand
 # Usage: install.sh add-device --volume <path> --label <name>
 # --------------------------------------------------------------------
@@ -275,10 +286,7 @@ cmd_add_device() {
         exit 1
     fi
 
-    if [[ ! -f "${CONFIG_FILE}" ]]; then
-        log_err "Config file not found: ${CONFIG_FILE}"
-        exit 1
-    fi
+    require_config_file 1
 
     # Extract UUID via diskutil
     local uuid
@@ -363,10 +371,7 @@ cmd_remove_device() {
         exit 2
     fi
 
-    if [[ ! -f "${CONFIG_FILE}" ]]; then
-        log_err "Config file not found: ${CONFIG_FILE}"
-        exit 4
-    fi
+    require_config_file 4
 
     python3 - <<PYEOF
 import sys
@@ -435,10 +440,7 @@ PYEOF
 # mount state via find_usb_by_uuid() (ADR-004 shared matching library).
 # --------------------------------------------------------------------
 cmd_list_devices() {
-    if [[ ! -f "${CONFIG_FILE}" ]]; then
-        log_err "Config file not found: ${CONFIG_FILE}"
-        exit 4
-    fi
+    require_config_file 4
 
     local config_output
     config_output=$(python3 - <<PYEOF

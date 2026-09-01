@@ -166,7 +166,7 @@ main() {
         fi
         local vol_path="${volume%/}"
         local vol_uuid
-        vol_uuid=$(diskutil info "${vol_path}" 2>/dev/null | grep "Volume UUID" | awk '{print $3}' || true)
+        vol_uuid=$(get_volume_uuid "${vol_path}")
 
         if [[ -z "${vol_uuid}" ]]; then
             continue

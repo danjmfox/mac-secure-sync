@@ -161,6 +161,33 @@ for d in cfg.get('usb_devices', []):
     fi
 }
 
+# assert_exit_code_nonzero <actual_exit_code> <test_name>
+# Rejection-path commands only guarantee non-zero, not a specific code.
+assert_exit_code_nonzero() {
+    local actual="$1"
+    local test_name="$2"
+    if [[ "${actual}" -ne 0 ]]; then
+        pass "${test_name}"
+    else
+        fail "${test_name}" "exit code was 0"
+    fi
+}
+
+# assert_config_unchanged <before> <after> <test_name> [reason]
+# Byte-for-byte comparison of a config.yaml snapshot taken before and after
+# a rejected mutation attempt.
+assert_config_unchanged() {
+    local before="$1"
+    local after="$2"
+    local test_name="$3"
+    local reason="${4:-config was modified}"
+    if [[ "${before}" == "${after}" ]]; then
+        pass "${test_name}"
+    else
+        fail "${test_name}" "${reason}"
+    fi
+}
+
 # ---------------------------------------------------------------------------
 # remove-device.feature — @US-101
 # ---------------------------------------------------------------------------
@@ -258,17 +285,10 @@ test_remove_device_unknown_label_leaves_config_untouched() {
     local config_after
     config_after=$(cat "${CONFIG_FILE}")
 
-    if [[ "${exit_code}" -ne 0 ]]; then
-        pass "[@US-101] remove-device exits non-zero for an unknown label"
-    else
-        fail "[@US-101] remove-device exits non-zero for an unknown label" "exit code was 0"
-    fi
-    if [[ "${config_before}" == "${config_after}" ]]; then
-        pass "[@US-101] config.yaml is byte-for-byte unchanged after unknown-label rejection"
-    else
-        fail "[@US-101] config.yaml is byte-for-byte unchanged after unknown-label rejection" \
-             "config was modified"
-    fi
+    assert_exit_code_nonzero "${exit_code}" \
+        "[@US-101] remove-device exits non-zero for an unknown label"
+    assert_config_unchanged "${config_before}" "${config_after}" \
+        "[@US-101] config.yaml is byte-for-byte unchanged after unknown-label rejection"
     if echo "${output}" | grep -q "list-devices"; then
         pass "[@US-101] error message names list-devices as the recovery step"
     else
@@ -292,17 +312,10 @@ test_remove_device_unknown_uuid_leaves_config_untouched() {
     local config_after
     config_after=$(cat "${CONFIG_FILE}")
 
-    if [[ "${exit_code}" -ne 0 ]]; then
-        pass "[@US-101] remove-device exits non-zero for an unknown UUID"
-    else
-        fail "[@US-101] remove-device exits non-zero for an unknown UUID" "exit code was 0"
-    fi
-    if [[ "${config_before}" == "${config_after}" ]]; then
-        pass "[@US-101] config.yaml is byte-for-byte unchanged after unknown-UUID rejection"
-    else
-        fail "[@US-101] config.yaml is byte-for-byte unchanged after unknown-UUID rejection" \
-             "config was modified"
-    fi
+    assert_exit_code_nonzero "${exit_code}" \
+        "[@US-101] remove-device exits non-zero for an unknown UUID"
+    assert_config_unchanged "${config_before}" "${config_after}" \
+        "[@US-101] config.yaml is byte-for-byte unchanged after unknown-UUID rejection"
     if echo "${output}" | grep -q "list-devices"; then
         pass "[@US-101] error message names list-devices as the recovery step"
     else
@@ -353,16 +366,10 @@ test_remove_device_requires_an_identifier() {
     local config_after
     config_after=$(cat "${CONFIG_FILE}")
 
-    if [[ "${exit_code}" -ne 0 ]]; then
-        pass "[@US-101] remove-device with neither --label nor --uuid exits non-zero"
-    else
-        fail "[@US-101] remove-device with neither --label nor --uuid exits non-zero" "exit code was 0"
-    fi
-    if [[ "${config_before}" == "${config_after}" ]]; then
-        pass "[@US-101] config.yaml is unchanged when no identifier is given"
-    else
-        fail "[@US-101] config.yaml is unchanged when no identifier is given" "config was modified"
-    fi
+    assert_exit_code_nonzero "${exit_code}" \
+        "[@US-101] remove-device with neither --label nor --uuid exits non-zero"
+    assert_config_unchanged "${config_before}" "${config_after}" \
+        "[@US-101] config.yaml is unchanged when no identifier is given"
 
     teardown_test_env
 }
@@ -379,16 +386,10 @@ test_remove_device_rejects_both_label_and_uuid() {
     local config_after
     config_after=$(cat "${CONFIG_FILE}")
 
-    if [[ "${exit_code}" -ne 0 ]]; then
-        pass "[@US-101] remove-device with both --label and --uuid exits non-zero"
-    else
-        fail "[@US-101] remove-device with both --label and --uuid exits non-zero" "exit code was 0"
-    fi
-    if [[ "${config_before}" == "${config_after}" ]]; then
-        pass "[@US-101] config.yaml is unchanged when both identifiers are given"
-    else
-        fail "[@US-101] config.yaml is unchanged when both identifiers are given" "config was modified"
-    fi
+    assert_exit_code_nonzero "${exit_code}" \
+        "[@US-101] remove-device with both --label and --uuid exits non-zero"
+    assert_config_unchanged "${config_before}" "${config_after}" \
+        "[@US-101] config.yaml is unchanged when both identifiers are given"
 
     teardown_test_env
 }
@@ -566,11 +567,8 @@ test_list_devices_never_modifies_config() {
 
     local config_after
     config_after=$(cat "${CONFIG_FILE}")
-    if [[ "${config_before}" == "${config_after}" ]]; then
-        pass "[@US-102] list-devices never modifies config.yaml"
-    else
-        fail "[@US-102] list-devices never modifies config.yaml" "config.yaml was modified"
-    fi
+    assert_config_unchanged "${config_before}" "${config_after}" \
+        "[@US-102] list-devices never modifies config.yaml" "config.yaml was modified"
 
     teardown_test_env
 }

@@ -146,6 +146,35 @@ usb_devices:
 YAML
 }
 
+# create_config_with_single_quote_label <config_path> <log_file> <marker_path>
+# Seeds a single registered device whose label carries a single-quote breakout
+# payload targeting list-devices' eval-based label rendering (security
+# regression, see docs/feature/usb-device-lifecycle/deliver security-fix-02).
+# The payload would execute `touch <marker_path>` if the label ever reached
+# bash's `eval` as a syntax-sensitive single-quoted assignment.
+UUID_INJECT_SQ="TEST-UUID-INJECT-SQ"
+single_quote_label_for() {
+    local marker_path="$1"
+    printf '%s' "IronKey'; touch ${marker_path}; x='"
+}
+create_config_with_single_quote_label() {
+    local config_path="$1"
+    local log_file="$2"
+    local marker_path="$3"
+    local label
+    label="$(single_quote_label_for "${marker_path}")"
+    cat > "${config_path}" <<YAML
+schema_version: 2
+log_file: ${log_file}
+rclone_bin: ${MOCK_BIN_DIR}/rclone
+sync_interval_seconds: 3600
+directories: []
+usb_devices:
+  - id: ${UUID_INJECT_SQ}
+    label: "${label}"
+YAML
+}
+
 # create_mock_diskutil_erroring
 # Simulates diskutil failing to resolve any volume (subprocess error path).
 create_mock_diskutil_erroring() {
@@ -656,6 +685,30 @@ test_list_devices_agrees_with_sync_usb_on_mount_state() {
     teardown_test_env
 }
 
+# @US-102 @security @driving_port
+test_list_devices_single_quote_label_no_code_execution() {
+    setup_test_env
+    local marker_path="${TEST_DIR}/pwned-marker-list"
+    create_config_with_single_quote_label "${CONFIG_FILE}" "${LOG_FILE}" "${marker_path}"
+
+    local output
+    output=$(CONFIG_FILE="${CONFIG_FILE}" "${INSTALL}" list-devices 2>&1)
+    local exit_code=$?
+
+    assert_file_not_exists "${marker_path}" \
+        "[@US-102 @security] a single-quote-breakout label does not execute injected code in list-devices"
+    assert_exit_code 0 "${exit_code}" \
+        "[@US-102 @security] list-devices exits 0 despite the single-quote-breakout label"
+    if echo "${output}" | grep -q "1 devices registered"; then
+        pass "[@US-102 @security] list-devices still reports the device count correctly"
+    else
+        fail "[@US-102 @security] list-devices still reports the device count correctly" \
+             "output was: ${output}"
+    fi
+
+    teardown_test_env
+}
+
 # ---------------------------------------------------------------------------
 # Test runner — one scenario enabled at a time (Mandate 5). Only the P1
 # walking skeleton (remove-device) runs by default. Uncomment the next test
@@ -727,5 +780,8 @@ test_list_devices_never_modifies_config
 
 # ENABLED — step 02-08 (FINAL step — ADR-004 regression probe)
 test_list_devices_agrees_with_sync_usb_on_mount_state
+
+# ENABLED — security-fix-02 (eval injection regression)
+test_list_devices_single_quote_label_no_code_execution
 
 print_summary

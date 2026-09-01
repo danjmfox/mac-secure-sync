@@ -442,8 +442,10 @@ PYEOF
 cmd_list_devices() {
     require_config_file 4
 
-    local config_output
-    config_output=$(CONFIG_FILE="${CONFIG_FILE}" python3 - <<'PYEOF'
+    local device_data_file
+    device_data_file=$(mktemp)
+
+    CONFIG_FILE="${CONFIG_FILE}" python3 - > "${device_data_file}" <<'PYEOF'
 import sys
 import os
 
@@ -462,43 +464,42 @@ with open(config_path) as f:
         print(f"ERROR: config.yaml is malformed: {e}", file=sys.stderr)
         sys.exit(4)
 
+# NUL-delimited id/label pairs — never a syntax-sensitive bash string. No
+# device-controlled value is ever passed through eval, source, or command
+# substitution in a syntax-sensitive position (security-fix-02).
 usb_devices = cfg.get('usb_devices', []) if cfg else []
-print(f"USB_DEVICE_COUNT={len(usb_devices)}")
-for i, device in enumerate(usb_devices):
-    print(f"USB_DEVICE_{i}_ID='{device.get('id','')}'")
-    print(f"USB_DEVICE_{i}_LABEL='{device.get('label','')}'")
+for device in usb_devices:
+    sys.stdout.write(str(device.get('id', '')) + '\0')
+    sys.stdout.write(str(device.get('label', '')) + '\0')
 PYEOF
-)
     local py_exit=$?
     if [[ ${py_exit} -ne 0 ]]; then
+        rm -f "${device_data_file}"
         exit ${py_exit}
     fi
 
-    eval "${config_output}"
-
-    if [[ "${USB_DEVICE_COUNT:-0}" -eq 0 ]]; then
-        echo "No USB devices registered. Run 'install.sh add-device' to register one."
-        exit 0
-    fi
-
     local volumes_base="${SECURELOCAL_VOLUMES_BASE:-/Volumes}"
-    local idx=0
-    while [[ ${idx} -lt ${USB_DEVICE_COUNT} ]]; do
-        local id_var="USB_DEVICE_${idx}_ID"
-        local label_var="USB_DEVICE_${idx}_LABEL"
-        local uuid="${!id_var}"
-        local label="${!label_var}"
-        local mount_path
+    local device_count=0
+    local uuid label mount_path
+
+    while IFS= read -r -d '' uuid && IFS= read -r -d '' label; do
         mount_path=$(find_usb_by_uuid "${uuid}" "${volumes_base}")
         if [[ -n "${mount_path}" ]]; then
             echo "  ${label}  (${uuid})  mounted at ${mount_path}"
         else
             echo "  ${label}  (${uuid})  not mounted"
         fi
-        ((idx++))
-    done
+        device_count=$((device_count + 1))
+    done < "${device_data_file}"
 
-    echo "${USB_DEVICE_COUNT} devices registered"
+    rm -f "${device_data_file}"
+
+    if [[ ${device_count} -eq 0 ]]; then
+        echo "No USB devices registered. Run 'install.sh add-device' to register one."
+        exit 0
+    fi
+
+    echo "${device_count} devices registered"
     exit 0
 }
 

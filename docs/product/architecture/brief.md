@@ -53,12 +53,30 @@ install.sh
   ├── backup_rclone_config()       -- REUSE unchanged
   ├── write_config_file()          -- REPLACE: writes config.yaml v2 (was config.env)
   ├── create_launch_agent()        -- REPLACE: writes 2 plists, removes old plist
-  └── add_device subcommand (new)  -- EXTEND select_usb_volume + duplicate UUID check
-                                      + atomic temp-rename write to config.yaml
+  ├── cmd_add_device()             -- EXTEND select_usb_volume + duplicate UUID check
+  │                                   + atomic temp-rename write to config.yaml
+  ├── cmd_remove_device()          -- NEW (usb-device-lifecycle, US-101): --label|--uuid
+  │                                   match, removes from usb_devices[] + every
+  │                                   directories[*].usb_devices, atomic temp-rename write
+  │                                   (mirrors cmd_add_device's ADR-003 pattern in reverse)
+  ├── cmd_list_devices()           -- NEW (usb-device-lifecycle, US-102): read-only,
+  │                                   cross-references usb_devices[] against live
+  │                                   /Volumes state via bin/lib/usb-common.sh (ADR-004)
+  └── require_config_file()        -- NEW (usb-device-lifecycle, Phase 3 aggregate refactor,
+                                       not anticipated in DESIGN): replaces three near-identical
+                                       config-existence checks across add/remove/list-devices
+
+bin/lib/usb-common.sh  (new, usb-device-lifecycle, ADR-004)
+  ├── find_usb_by_uuid()           -- MOVED from sync-usb.sh: pure query function,
+  │                                   sourced by both install.sh and sync-usb.sh
+  └── get_volume_uuid()            -- MOVED from sync-usb.sh (Phase 3 aggregate refactor;
+                                       ADR-004's 02-02 extraction step missed this
+                                       byte-identical duplicate, completed in cleanup)
 
 sync-usb.sh  (new, replaces sync-to-usb-and-cloud.sh USB half)
   ├── load_config()                -- NEW: python3 parse-once, emits key=value pairs
-  ├── find_usb_by_uuid()           -- ADAPT: generalised to iterate all registered UUIDs
+  ├── find_usb_by_uuid()           -- MOVED to bin/lib/usb-common.sh (ADR-004); sourced,
+  │                                   not redefined. Behavior unchanged.
   └── sync_to_usb()               -- ADAPT: wrapped in per-directory loop
 
 sync-cloud.sh  (new, replaces sync-to-usb-and-cloud.sh cloud half)
@@ -158,6 +176,18 @@ No proprietary dependencies. No new runtime dependencies introduced.
 | Test harness framework | EXTEND | Config format + script targets change; mock factories need updating |
 | Mock factories (diskutil) | EXTEND | diskutil mock needs multi-UUID response capability |
 
+### usb-device-lifecycle (2026-08-24)
+
+| Existing component | Disposition | Rationale |
+|------------------|-------------|-----------|
+| `find_usb_by_uuid()` (sync-usb.sh) | CREATE NEW location (`bin/lib/usb-common.sh`), MOVE not duplicate | `list-devices` needs the identical UUID-to-mount-path resolution `sync-usb.sh` already owns; shared-artifacts-registry flags independent re-implementation as HIGH integration risk. See ADR-004. |
+| `cmd_add_device()`'s atomic-write pattern | EXTEND (mirrored, not shared code) | `cmd_remove_device()` follows the same temp-rename structure (ADR-003) applied to deletion; no shared write function extracted — each subcommand's config mutation is small enough that mirroring the pattern is lower-risk than introducing a shared read-modify-write helper this early |
+| `load_config()` (sync-usb.sh / sync-cloud.sh) | REUSE unchanged, NOT extracted | Already intentionally duplicated per script (independence paradigm, ADR-002 precedent). `cmd_list_devices()` uses its own minimal read-only python3 block, following `cmd_add_device()`'s existing per-subcommand convention rather than reaching into the sync scripts' duplication pattern. |
+| `tests/acceptance/multi-usb-sync/helpers.sh` mock factories (`create_mock_diskutil_multi`, `register_mock_volume`) | REUSE unchanged | Multi-UUID diskutil mocking already supports the fixtures both new commands need; no new mock factory required |
+| Test harness location | CREATE NEW directory `tests/acceptance/usb-device-lifecycle/` | Per-feature test directory convention (established by `tests/acceptance/multi-usb-sync/`); sources the existing `helpers.sh` rather than duplicating it |
+
+No component in this feature is a from-scratch build — every new piece either moves, mirrors, or directly reuses an existing, accepted pattern.
+
 ---
 
 ## Integration Patterns
@@ -201,6 +231,31 @@ All writes to config.yaml use temp-rename:
 1. Write to `config.yaml.tmp` in the same directory
 2. `mv config.yaml.tmp config.yaml` (atomic on same filesystem)
 3. Never leave a partial config.yaml visible to running scripts
+
+### USB Matching Library Contract (usb-device-lifecycle, ADR-004)
+
+`bin/lib/usb-common.sh : find_usb_by_uuid(uuid, volumes_base)` — pure query function, unchanged signature from its prior inline definition in `sync-usb.sh`:
+- Input: UUID string, volumes base path (e.g. `/Volumes`)
+- Output: mount path on stdout if found, empty otherwise
+- No side effects on `source`; safe for any script to source without triggering execution
+- Consumers: `sync-usb.sh` (existing), `install.sh:cmd_list_devices()` (new)
+
+### remove-device Port Contract (usb-device-lifecycle, US-101)
+
+`install.sh remove-device --label <name>|--uuid <uuid>`:
+- Input: exactly one of `--label` or `--uuid` (mutually exclusive)
+- On match: entry removed from `usb_devices[]`; UUID stripped from every `directories[*].usb_devices` list; atomic temp-rename write (ADR-003 pattern); all other entries byte-for-byte unchanged
+- On no match: exit 2, `config.yaml` completely unmodified, error names `list-devices` as the recovery step
+- On config read/schema error: exit 4 (consistent with `sync-usb.sh`/`sync-cloud.sh`/`add-device` convention)
+- Structural constraint: the new-config computation must be a step separable from the write step, so a future tombstone/audit-log write (deferred US-103) can be inserted between them without restructuring the function (OQ-004)
+
+### list-devices Port Contract (usb-device-lifecycle, US-102)
+
+`install.sh list-devices`:
+- Read-only: never writes to `config.yaml`
+- Reads `usb_devices[]`; for each entry, resolves live mount state via `find_usb_by_uuid()` (ADR-004) — never an independent `/Volumes` scan
+- Empty registry: exit 0, inviting message naming `add-device` as the next action
+- Config read/schema error: exit 4
 
 ---
 
@@ -270,6 +325,7 @@ Single macOS machine. No containers, no network services.
 | ADR-001 | Config Schema v2 (YAML, directories-first) | Accepted |
 | ADR-002 | YAML Parser: python3 parse-once strategy | Accepted |
 | ADR-003 | USB Registration: install.sh add-device subcommand | Accepted |
+| ADR-004 | Shared USB Matching Library: bin/lib/usb-common.sh | Accepted |
 
 ---
 
@@ -280,3 +336,4 @@ Single macOS machine. No containers, no network services.
 | OQ-001 | Log rotation | Out of scope for this feature; flag in README as future concern |
 | OQ-002 | `check_dependencies()` — add python3 to dependency list? | Yes, trivial; crafter adds during implementation |
 | OQ-003 | `sync_interval_seconds` in config.yaml — plist must be regenerated on change | Crafter documents this in install.sh help output |
+| OQ-004 | `cmd_remove_device()`'s config mutation must compute the new config dict as a step separable from the atomic-write step (not one undifferentiated block) | Deferred US-103 (orphaned-data cleanup on stale reinsert) would need to hook a tombstone/audit-log write between "compute new config" and "write" without restructuring `cmd_remove_device()`. Not building US-103 now — this is a structural constraint on the new function's shape, not new scope. Crafter honors during GREEN/REFACTOR. |

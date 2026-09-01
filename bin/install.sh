@@ -16,6 +16,12 @@ SYNC_USB_SCRIPT="${INSTALL_DIR}/bin/sync-usb.sh"
 SYNC_CLOUD_SCRIPT="${INSTALL_DIR}/bin/sync-cloud.sh"
 NON_INTERACTIVE=false
 
+# --------------------------------------------------------------------
+# Shared library (ADR-004)
+# --------------------------------------------------------------------
+# shellcheck source=lib/usb-common.sh
+source "${INSTALL_DIR}/bin/lib/usb-common.sh"
+
 mkdir -p "$(dirname "${LOG_FILE}")" "$(dirname "${CONFIG_FILE}")" "${LAUNCH_AGENTS_DIR}"
 
 # --------------------------------------------------------------------
@@ -249,6 +255,17 @@ EOF
 }
 
 # --------------------------------------------------------------------
+# require_config_file — exit with the given code if CONFIG_FILE is absent
+# --------------------------------------------------------------------
+require_config_file() {
+    local exit_code="$1"
+    if [[ ! -f "${CONFIG_FILE}" ]]; then
+        log_err "Config file not found: ${CONFIG_FILE}"
+        exit "${exit_code}"
+    fi
+}
+
+# --------------------------------------------------------------------
 # add-device subcommand
 # Usage: install.sh add-device --volume <path> --label <name>
 # --------------------------------------------------------------------
@@ -269,10 +286,7 @@ cmd_add_device() {
         exit 1
     fi
 
-    if [[ ! -f "${CONFIG_FILE}" ]]; then
-        log_err "Config file not found: ${CONFIG_FILE}"
-        exit 1
-    fi
+    require_config_file 1
 
     # Extract UUID via diskutil
     local uuid
@@ -283,13 +297,13 @@ cmd_add_device() {
     fi
 
     # Check for duplicate UUID and append atomically using python3
-    python3 - <<PYEOF
+    CONFIG_FILE="${CONFIG_FILE}" NEW_UUID="${uuid}" NEW_LABEL="${label}" python3 - <<'PYEOF'
 import sys
 import os
 
-config_path = "${CONFIG_FILE}"
-new_uuid = "${uuid}"
-new_label = "${label}"
+config_path = os.environ['CONFIG_FILE']
+new_uuid = os.environ['NEW_UUID']
+new_label = os.environ['NEW_LABEL']
 
 try:
     import yaml
@@ -332,6 +346,164 @@ PYEOF
 }
 
 # --------------------------------------------------------------------
+# remove-device subcommand
+# Usage: install.sh remove-device --label <name> | --uuid <id>
+# --------------------------------------------------------------------
+cmd_remove_device() {
+    local label=""
+    local uuid=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --label) label="$2"; shift 2 ;;
+            --uuid) uuid="$2"; shift 2 ;;
+            *) log_err "Unknown remove-device option: $1"; exit 1 ;;
+        esac
+    done
+
+    if [[ -z "${label}" ]] && [[ -z "${uuid}" ]]; then
+        log_err "remove-device requires either --label <name> or --uuid <id>"
+        exit 2
+    fi
+
+    if [[ -n "${label}" ]] && [[ -n "${uuid}" ]]; then
+        log_err "remove-device accepts either --label or --uuid, not both"
+        exit 2
+    fi
+
+    require_config_file 4
+
+    CONFIG_FILE="${CONFIG_FILE}" TARGET_LABEL="${label}" TARGET_UUID="${uuid}" python3 - <<'PYEOF'
+import sys
+import os
+
+config_path = os.environ['CONFIG_FILE']
+target_label = os.environ['TARGET_LABEL']
+target_uuid = os.environ['TARGET_UUID']
+match_field = 'id' if target_uuid else 'label'
+match_value = target_uuid if target_uuid else target_label
+
+try:
+    import yaml
+except ImportError:
+    print("ERROR: python3 yaml module not available", file=sys.stderr)
+    sys.exit(1)
+
+with open(config_path) as f:
+    try:
+        cfg = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        print(f"ERROR: config.yaml is malformed: {e}", file=sys.stderr)
+        sys.exit(4)
+
+# Step 1: compute the mutated config, separable from the write step so a
+# future story can insert a step between compute and write (OQ-004).
+def compute_mutated_config(cfg, match_field, match_value):
+    usb_devices = cfg.get('usb_devices', [])
+    removed_ids = [d.get('id') for d in usb_devices if d.get(match_field) == match_value]
+    if not removed_ids:
+        return None, 0
+
+    remaining = [d for d in usb_devices if d.get(match_field) != match_value]
+    cfg['usb_devices'] = remaining
+
+    directories = cfg.get('directories', [])
+    for directory in directories:
+        dir_usb = directory.get('usb_devices', [])
+        directory['usb_devices'] = [uuid for uuid in dir_usb if uuid not in removed_ids]
+    cfg['directories'] = directories
+
+    return cfg, len(remaining)
+
+mutated_cfg, remaining_count = compute_mutated_config(cfg, match_field, match_value)
+
+if mutated_cfg is None:
+    print(f"ERROR: no registered device matches {match_field}={match_value!r}. "
+          f"Run 'install.sh list-devices' to see registered devices.", file=sys.stderr)
+    sys.exit(2)
+
+# Step 2: atomic write — write to .tmp then rename.
+tmp_path = config_path + ".tmp"
+with open(tmp_path, 'w') as f:
+    yaml.dump(mutated_cfg, f, default_flow_style=False, allow_unicode=True)
+os.rename(tmp_path, config_path)
+print(f"{remaining_count} devices remain registered")
+PYEOF
+    local py_exit=$?
+    exit ${py_exit}
+}
+
+# --------------------------------------------------------------------
+# list-devices subcommand
+# Usage: install.sh list-devices
+# Read-only: enumerates usb_devices[] from config.yaml and reports live
+# mount state via find_usb_by_uuid() (ADR-004 shared matching library).
+# --------------------------------------------------------------------
+cmd_list_devices() {
+    require_config_file 4
+
+    local device_data_file
+    device_data_file=$(mktemp)
+
+    CONFIG_FILE="${CONFIG_FILE}" python3 - > "${device_data_file}" <<'PYEOF'
+import sys
+import os
+
+config_path = os.environ['CONFIG_FILE']
+
+try:
+    import yaml
+except ImportError:
+    print("ERROR: python3 yaml module not available", file=sys.stderr)
+    sys.exit(1)
+
+with open(config_path) as f:
+    try:
+        cfg = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        print(f"ERROR: config.yaml is malformed: {e}", file=sys.stderr)
+        sys.exit(4)
+
+# NUL-delimited id/label pairs — never a syntax-sensitive bash string. No
+# device-controlled value is ever passed through eval, source, or command
+# substitution in a syntax-sensitive position (security-fix-02).
+usb_devices = cfg.get('usb_devices', []) if cfg else []
+for device in usb_devices:
+    sys.stdout.write(str(device.get('id', '')) + '\0')
+    sys.stdout.write(str(device.get('label', '')) + '\0')
+PYEOF
+    local py_exit=$?
+    if [[ ${py_exit} -ne 0 ]]; then
+        rm -f "${device_data_file}"
+        exit ${py_exit}
+    fi
+
+    local volumes_base="${SECURELOCAL_VOLUMES_BASE:-/Volumes}"
+    local device_count=0
+    local uuid label mount_path
+
+    while IFS= read -r -d '' uuid && IFS= read -r -d '' label; do
+        mount_path=$(find_usb_by_uuid "${uuid}" "${volumes_base}")
+        if [[ -n "${mount_path}" ]]; then
+            echo "  ${label}  (${uuid})  mounted at ${mount_path}"
+        else
+            echo "  ${label}  (${uuid})  not mounted"
+        fi
+        device_count=$((device_count + 1))
+    done < "${device_data_file}"
+
+    rm -f "${device_data_file}"
+
+    if [[ ${device_count} -eq 0 ]]; then
+        echo "No USB devices registered. Run 'install.sh add-device' to register one."
+        exit 0
+    fi
+
+    echo "${device_count} devices registered"
+    exit 0
+}
+
+# --------------------------------------------------------------------
 # Main
 # --------------------------------------------------------------------
 main() {
@@ -349,6 +521,18 @@ main() {
     if [[ "${1:-}" == "add-device" ]]; then
         shift
         cmd_add_device "$@"
+        exit $?
+    fi
+
+    if [[ "${1:-}" == "remove-device" ]]; then
+        shift
+        cmd_remove_device "$@"
+        exit $?
+    fi
+
+    if [[ "${1:-}" == "list-devices" ]]; then
+        shift
+        cmd_list_devices "$@"
         exit $?
     fi
 

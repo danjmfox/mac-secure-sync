@@ -1,0 +1,130 @@
+schema_version: 1
+
+journey:
+  name: "Retiring a USB Device"
+  goal: "Dan cleanly removes a lost/retired USB device from config.yaml, confident nothing else breaks"
+  persona: "Dan Fox — builder-user, solo operator (docs/product/jobs.yaml JOB-003)"
+
+  emotional_arc:
+    start: "Mildly anxious — device is gone/retired, config still references it, unsure what's safe to touch"
+    middle: "Focused — confirming what's registered, targeting the right device"
+    end: "Relieved and confident — config.yaml reflects reality, other devices and directories untouched"
+
+steps:
+  - id: 1
+    name: "List Registered Devices"
+    command: "install.sh list-devices"
+
+    tui_mockup: |
+      +-- Step 1: List Registered Devices -----------------------------+
+      | $ install.sh list-devices                                      |
+      |                                                                 |
+      | Registered USB Devices                                         |
+      | LABEL                UUID          MOUNTED                     |
+      | IronKey-A (home)     1A2B-3C4D     yes  /Volumes/IronKey-A     |
+      | IronKey-B (office)   5E6F-7A8B     no                          |
+      | IronKey-C (travel)   9C0D-1E2F     no                          |
+      |                                                                 |
+      | ${device_count} devices registered.                            |
+      +-------------------------------------------------------------------+
+
+    shared_artifacts:
+      - name: "usb_devices[]"
+        source: "~/.config/securelocal/config.yaml"
+        displayed_as: "${label} / ${uuid} rows"
+        consumers: ["install.sh add-device", "install.sh remove-device", "install.sh list-devices", "sync-usb.sh"]
+      - name: "mounted_state"
+        source: "live /Volumes scan via diskutil (not stored in config.yaml)"
+        displayed_as: "${mounted} column"
+        consumers: ["install.sh list-devices", "sync-usb.sh find_usb_by_uuid()"]
+
+    emotional_state:
+      entry: "Uncertain what's currently registered"
+      exit: "Informed — knows exactly which label/UUID to target next"
+
+    integration_checkpoint: |
+      Mount-state lookup must reuse the same UUID-matching logic as
+      sync-usb.sh:find_usb_by_uuid() — not a second, independently-written matcher.
+
+    failure_modes:
+      - "No devices registered yet — must show an inviting empty state, not a blank/error output"
+      - "config.yaml unreadable or schema_version mismatch — exits 4 with the same message convention as sync-usb.sh/sync-cloud.sh"
+
+    gherkin: |
+      Scenario: Listing devices shows every registered device with live mount state
+        Given config.yaml has 3 registered USB devices, one of which is currently mounted
+        When Dan runs install.sh list-devices
+        Then the output shows all 3 devices with label and UUID
+        And the mounted device shows its live mount path
+        And the two unmounted devices show "not mounted"
+
+  - id: 2
+    name: "Remove Device"
+    command: "install.sh remove-device --label <name> | --uuid <uuid>"
+
+    tui_mockup: |
+      +-- Step 2: Remove Device (happy path) ---------------------------+
+      | $ install.sh remove-device --label "IronKey-C (travel)"        |
+      |                                                                 |
+      | i  Found device: IronKey-C (travel) (9C0D-1E2F)                |
+      | i  Removing from usb_devices[] and 2 directory mappings...     |
+      | OK Removed IronKey-C (travel) (9C0D-1E2F)                      |
+      | OK config.yaml updated — ${remaining_count} devices remain     |
+      +---------------------------------------------------------------------+
+
+      +-- Step 2: Remove Device (error path) ---------------------------+
+      | $ install.sh remove-device --label "IronKey-Z"                 |
+      | ERROR No registered device matches label "IronKey-Z"           |
+      | i  Run: install.sh list-devices to see registered devices      |
+      +---------------------------------------------------------------------+
+
+    shared_artifacts:
+      - name: "usb_devices[]"
+        source: "~/.config/securelocal/config.yaml"
+        displayed_as: "entry removed by ${uuid} match"
+        consumers: ["install.sh add-device", "install.sh remove-device", "install.sh list-devices", "sync-usb.sh"]
+      - name: "directories[*].usb_devices[]"
+        source: "~/.config/securelocal/config.yaml"
+        displayed_as: "${uuid} stripped from each directory's list"
+        consumers: ["install.sh add-device", "install.sh remove-device", "sync-usb.sh"]
+
+    emotional_state:
+      entry: "Careful, deliberate — about to mutate shared config"
+      exit: "Relieved — explicit confirmation of what changed (1 device) and what didn't (N remain)"
+
+    integration_checkpoint: |
+      Every OTHER usb_devices[] entry must be byte-for-byte identical after removal
+      (mirrors ADR-003's add-device idempotency/non-corruption guarantee, inverted).
+      A directory left with usb_devices: [] after removal is valid, not an error —
+      sync-usb.sh already no-ops silently on zero UUID matches (US-002).
+
+    failure_modes:
+      - "Unknown label or UUID — exit non-zero, config.yaml completely unmodified, error names the exact recovery command (list-devices)"
+      - "Neither --label nor --uuid supplied — usage error, exit 2 (consistent with existing exit-code convention)"
+      - "Removal interrupted mid-write — temp-rename pattern (ADR-003) guarantees config.yaml is never left partial"
+
+    gherkin: |
+      Scenario: Removing a device by label leaves other devices unchanged
+        Given config.yaml has 3 registered devices: IronKey-A, IronKey-B, IronKey-C
+        When Dan runs install.sh remove-device --label "IronKey-C (travel)"
+        Then usb_devices[] contains only IronKey-A and IronKey-B
+        And IronKey-A and IronKey-B's entries are byte-for-byte unchanged
+        And every directory's usb_devices list no longer contains IronKey-C's UUID
+
+      Scenario: Attempting to remove an unregistered label leaves config.yaml untouched
+        Given config.yaml does not contain a device labeled "IronKey-Z"
+        When Dan runs install.sh remove-device --label "IronKey-Z"
+        Then the command exits non-zero
+        And config.yaml is byte-for-byte unchanged
+        And the error names install.sh list-devices as the recovery step
+
+integration_validation:
+  shared_artifact_consistency:
+    - artifact: "usb_devices[] UUID matching"
+      must_match_across: [1, 2]
+      failure_message: "list-devices and remove-device must agree on which UUIDs are registered and which are mounted — drift here means Dan removes based on stale information"
+
+changelog:
+  - date: "2026-08-24"
+    feature: "usb-device-lifecycle"
+    change: "Added list-devices and remove-device steps, extending the multi-usb-sync device lifecycle journey (add-device only, no inverse) with deregistration and enumeration."

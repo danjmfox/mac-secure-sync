@@ -63,3 +63,39 @@ jobs:
     outcome_statements:
       - minimize the effort to register a second USB device
       - minimize the risk that adding device 2 disrupts device 1 sync
+
+  - id: JOB-003
+    label: confident-decommissioner
+    statement: >
+      When I retire, lose, or replace a USB device that was previously registered,
+      I want to cleanly remove it from my sync configuration and confirm what is
+      currently registered,
+      so I can trust that config.yaml reflects only the devices I actually use,
+      without lingering stale entries or uncertainty about what's registered.
+    persona: builder-user
+    functional_dimension: >
+      deregister a USB device from usb_devices[] and every directory's usb_devices[]
+      list; enumerate currently registered devices with live mount state
+    emotional_dimension: confidence that config accurately reflects reality; relief from clutter/uncertainty
+    social_dimension: personal — no sharing, no team
+    forces:
+      push: >
+        USB devices get lost, retired, or replaced, but config.yaml only ever accretes —
+        add-device has no inverse. Stale UUID entries linger indefinitely with no
+        supported way to confirm what's actually registered without opening and
+        parsing YAML by hand.
+      pull: >
+        A remove-device command that cleanly deregisters a device by label or UUID,
+        and a list-devices command that shows what's registered plus live mount
+        state, without requiring Dan to read raw YAML.
+      anxiety: >
+        Removing the wrong device by mistake. Accidentally corrupting other devices'
+        entries or directory mappings while removing one device. Not knowing which
+        UUID or label to target when the device isn't physically present to check.
+      habit: >
+        Opening config.yaml in a text editor and manually deleting the relevant
+        lines, risking a YAML syntax error or editing the wrong entry.
+    outcome_statements:
+      - minimize the effort to remove a stale or retired USB device from config
+      - minimize the risk that removing one device disrupts other devices or directories
+      - minimize the time to confirm what devices are currently registered and their mount state

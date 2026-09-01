@@ -117,6 +117,35 @@ usb_devices: []
 YAML
 }
 
+# create_config_with_malicious_label <config_path> <log_file> <marker_path>
+# Seeds a single registered device whose label carries a double-quote
+# breakout payload targeting the config-mutation heredocs (security regression,
+# see docs/feature/usb-device-lifecycle/deliver security-fix-01). The payload
+# would execute `touch <marker_path>` if the label ever reached raw
+# bash-into-Python string interpolation instead of env-var passing.
+UUID_INJECT="TEST-UUID-INJECT"
+malicious_label_for() {
+    local marker_path="$1"
+    printf '%s' 'IronKey"; import os; os.system("touch '"${marker_path}"'"); x="'
+}
+create_config_with_malicious_label() {
+    local config_path="$1"
+    local log_file="$2"
+    local marker_path="$3"
+    local label
+    label="$(malicious_label_for "${marker_path}")"
+    cat > "${config_path}" <<YAML
+schema_version: 2
+log_file: ${log_file}
+rclone_bin: ${MOCK_BIN_DIR}/rclone
+sync_interval_seconds: 3600
+directories: []
+usb_devices:
+  - id: ${UUID_INJECT}
+    label: '${label}'
+YAML
+}
+
 # create_mock_diskutil_erroring
 # Simulates diskutil failing to resolve any volume (subprocess error path).
 create_mock_diskutil_erroring() {
@@ -409,6 +438,32 @@ test_remove_device_writes_config_atomically() {
     teardown_test_env
 }
 
+# @US-101 @security @driving_port
+test_remove_device_malicious_label_no_code_execution() {
+    setup_test_env
+    local marker_path="${TEST_DIR}/pwned-marker"
+    local malicious_label
+    malicious_label="$(malicious_label_for "${marker_path}")"
+    create_config_with_malicious_label "${CONFIG_FILE}" "${LOG_FILE}" "${marker_path}"
+
+    local output
+    output=$(CONFIG_FILE="${CONFIG_FILE}" "${INSTALL}" remove-device --label "${malicious_label}" 2>&1)
+    local exit_code=$?
+
+    assert_file_not_exists "${marker_path}" \
+        "[@US-101 @security] a double-quote-breakout label does not execute injected code"
+    assert_exit_code 0 "${exit_code}" \
+        "[@US-101 @security] remove-device matches the literal malicious label and exits 0"
+    if echo "${output}" | grep -q "0 devices remain registered"; then
+        pass "[@US-101 @security] the malicious-label device was removed cleanly"
+    else
+        fail "[@US-101 @security] the malicious-label device was removed cleanly" \
+             "output was: ${output}"
+    fi
+
+    teardown_test_env
+}
+
 # ---------------------------------------------------------------------------
 # list-devices.feature — @US-102
 # ---------------------------------------------------------------------------
@@ -642,6 +697,9 @@ test_remove_device_rejects_both_label_and_uuid
 
 # ENABLED — step 01-08 (final step of Phase 01, completes US-101)
 test_remove_device_writes_config_atomically
+
+# ENABLED — security-fix-01 (heredoc injection regression)
+test_remove_device_malicious_label_no_code_execution
 
 # ENABLED — step 02-01 (walking skeleton, list-devices)
 test_ws_list_devices_shows_every_registered_device

@@ -297,13 +297,13 @@ cmd_add_device() {
     fi
 
     # Check for duplicate UUID and append atomically using python3
-    python3 - <<PYEOF
+    CONFIG_FILE="${CONFIG_FILE}" NEW_UUID="${uuid}" NEW_LABEL="${label}" python3 - <<'PYEOF'
 import sys
 import os
 
-config_path = "${CONFIG_FILE}"
-new_uuid = "${uuid}"
-new_label = "${label}"
+config_path = os.environ['CONFIG_FILE']
+new_uuid = os.environ['NEW_UUID']
+new_label = os.environ['NEW_LABEL']
 
 try:
     import yaml
@@ -373,13 +373,13 @@ cmd_remove_device() {
 
     require_config_file 4
 
-    python3 - <<PYEOF
+    CONFIG_FILE="${CONFIG_FILE}" TARGET_LABEL="${label}" TARGET_UUID="${uuid}" python3 - <<'PYEOF'
 import sys
 import os
 
-config_path = "${CONFIG_FILE}"
-target_label = "${label}"
-target_uuid = "${uuid}"
+config_path = os.environ['CONFIG_FILE']
+target_label = os.environ['TARGET_LABEL']
+target_uuid = os.environ['TARGET_UUID']
 match_field = 'id' if target_uuid else 'label'
 match_value = target_uuid if target_uuid else target_label
 
@@ -443,10 +443,11 @@ cmd_list_devices() {
     require_config_file 4
 
     local config_output
-    config_output=$(python3 - <<PYEOF
+    config_output=$(CONFIG_FILE="${CONFIG_FILE}" python3 - <<'PYEOF'
 import sys
+import os
 
-config_path = "${CONFIG_FILE}"
+config_path = os.environ['CONFIG_FILE']
 
 try:
     import yaml

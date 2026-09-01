@@ -24,7 +24,6 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-          cache: sonar
 
       - name: Run SonarCloud analysis
         uses: sonarsource/sonarcloud-github-action@v2

@@ -1,5 +1,7 @@
 # Technical approach
 
+**Historical design notes — superseded.** This document predates the `multi-usb-sync` rework (2026-05-17) and describes the original single-directory, single-USB, single combined-script design (env-var config, one sync script, exit code `3` for "both failed"). Current architecture: `docs/product/architecture/brief.md` and `c4-diagrams.md`; current config format: ADR-001; current exit-code contract (no code `3` — the sync scripts are now independent processes, so "both fail" isn't a single reportable state): `README.md`. Left here as a record of the original thinking, not as current behavior.
+
 ## 1. USB detection via UUID
 
 - Install script captures UUID with `diskutil info /Volumes/YourDrive | grep "Volume UUID"`
@@ -13,9 +15,9 @@
 rsync -avh --ignore-errors ~/secureLocal/ /Volumes/YourDrive/secureLocal/
 ```
 
-No `--delete` flag, so deleted local files stay on USB as hi storical safety net.
+No `--delete` flag, so deleted local files stay on USB as historical safety net.
 
-## ## 3. Cloud rclone - mirror
+## 3. Cloud rclone - mirror
 
 ```bash
 rclone sync ~/secureLocal remote-crypt:secureLocal --log-file ~/Library/Logs/securelocal-sync.log

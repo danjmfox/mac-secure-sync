@@ -441,6 +441,108 @@ test_each_test_gets_isolated_temp_directory() {
 }
 
 # ---------------------------------------------------------------------------
+# @security — eval injection regression (security-fix-03)
+# sync-usb.sh and sync-cloud.sh both fed load_config()'s python-generated
+# KEY='value' output straight into `eval`. A config value containing a single
+# quote breaks out of the quoted assignment and executes arbitrary bash — the
+# same vulnerability class already fixed in install.sh's cmd_list_devices()
+# (commit c882b03). These fixtures are local to this file, not helpers.sh,
+# since only this run-tests.sh is in scope for security-fix-03.
+# ---------------------------------------------------------------------------
+
+UUID_INJECT_SYNC="TEST-UUID-INJECT-SYNC"
+
+# single_quote_payload_for <marker_path>
+# A single-quote breakout payload: closes the eval'd KEY='...' assignment,
+# runs `touch <marker_path>`, then re-opens a quote so the generated bash
+# stays syntactically valid. Would only execute if the value ever reached
+# `eval` as a syntax-sensitive single-quoted assignment.
+single_quote_payload_for() {
+    local marker_path="$1"
+    printf '%s' "payload'; touch ${marker_path}; x='"
+}
+
+# create_config_with_malicious_usb_label <config_path> <log_file> <marker_path>
+# One registered USB device whose label carries the single-quote breakout
+# payload. No directories/mounted volumes needed — the eval fires while
+# load_config's output is parsed, before any USB-matching logic runs.
+create_config_with_malicious_usb_label() {
+    local config_path="$1"
+    local log_file="$2"
+    local marker_path="$3"
+    local label
+    label="$(single_quote_payload_for "${marker_path}")"
+    cat > "${config_path}" <<YAML
+schema_version: 2
+log_file: ${log_file}
+rclone_bin: ${MOCK_BIN_DIR}/rclone
+sync_interval_seconds: 3600
+directories: []
+usb_devices:
+  - id: ${UUID_INJECT_SYNC}
+    label: "${label}"
+YAML
+}
+
+# create_config_with_malicious_cloud_remote <config_path> <log_file> <marker_path>
+# One directory whose cloud_remote carries the single-quote breakout payload.
+create_config_with_malicious_cloud_remote() {
+    local config_path="$1"
+    local log_file="$2"
+    local marker_path="$3"
+    local remote
+    remote="$(single_quote_payload_for "${marker_path}")"
+    cat > "${config_path}" <<YAML
+schema_version: 2
+log_file: ${log_file}
+rclone_bin: ${MOCK_BIN_DIR}/rclone
+sync_interval_seconds: 3600
+directories:
+  - local_path: ${LOCAL_DIR}
+    cloud_remote: "${remote}"
+    usb_devices: []
+usb_devices: []
+YAML
+}
+
+test_sync_usb_single_quote_label_no_code_execution() {
+    setup_test_env
+    local marker_path="${TEST_DIR}/pwned-marker-sync-usb"
+    create_config_with_malicious_usb_label "${CONFIG_FILE}" "${LOG_FILE}" "${marker_path}"
+
+    CONFIG_FILE="${CONFIG_FILE}" \
+    SECURELOCAL_VOLUMES_BASE="${VOLUMES_DIR}" \
+        "${SYNC_USB}" > /dev/null 2>&1
+    local exit_code=$?
+
+    assert_file_not_exists "${marker_path}" \
+        "[@US-001 @security] a single-quote-breakout USB device label does not execute injected code in sync-usb.sh"
+    assert_exit_code 0 "${exit_code}" \
+        "[@US-001 @security] sync-usb.sh exits 0 despite the single-quote-breakout label"
+
+    teardown_test_env
+}
+
+test_sync_cloud_single_quote_remote_no_code_execution() {
+    setup_test_env
+    local marker_path="${TEST_DIR}/pwned-marker-sync-cloud"
+    create_config_with_malicious_cloud_remote "${CONFIG_FILE}" "${LOG_FILE}" "${marker_path}"
+    create_mock_rclone "false"
+
+    CONFIG_FILE="${CONFIG_FILE}" \
+    SECURELOCAL_VOLUMES_BASE="${VOLUMES_DIR}" \
+        "${SYNC_CLOUD}" > /dev/null 2>&1
+    local exit_code=$?
+
+    assert_file_not_exists "${marker_path}" \
+        "[@US-003 @security] a single-quote-breakout cloud_remote does not execute injected code in sync-cloud.sh"
+    assert_exit_code 0 "${exit_code}" \
+        "[@US-003 @security] sync-cloud.sh exits 0 despite the single-quote-breakout cloud_remote"
+
+    teardown_test_env
+}
+
+# ---------------------------------------------------------------------------
 # Test runner — first test enabled (walking skeleton), all others are skip-marked
 # in comments per the one-at-a-time mandate. To enable a test, remove the
 # 'skip_' prefix from the function call below.
@@ -470,5 +572,9 @@ test_atomic_write_leaves_no_temp_file
 test_both_plists_recorded_by_launchctl
 test_mock_rsync_is_invoked_not_real_rsync
 test_each_test_gets_isolated_temp_directory
+
+# ENABLED — security-fix-03 (eval injection regression, sync-usb.sh / sync-cloud.sh)
+test_sync_usb_single_quote_label_no_code_execution
+test_sync_cloud_single_quote_remote_no_code_execution
 
 print_summary

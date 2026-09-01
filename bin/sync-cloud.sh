@@ -40,21 +40,31 @@ log_error() {
 }
 
 # ---------------------------------------------------------------------------
-# load_config — parse config.yaml with python3, emit KEY=value pairs
-# Exits 4 on missing file, invalid YAML, or schema_version != 2
+# load_config — parse config.yaml with python3, write NUL-delimited fields to
+# output_file in a fixed order. Exits 4 on missing file, invalid YAML, or
+# schema_version != 2. Never a syntax-sensitive bash string: no config-derived
+# value is passed through eval, source, or command substitution in a
+# syntax-sensitive position (security-fix-03, mirrors install.sh's
+# cmd_list_devices()).
 # ---------------------------------------------------------------------------
 load_config() {
     local config_path="$1"
+    local output_file="$2"
 
     if [[ ! -f "${config_path}" ]]; then
         echo "ERROR sync-cloud - config file not found: ${config_path}" >&2
         exit 4
     fi
 
-    python3 - "${config_path}" <<'PYEOF'
+    python3 - "${config_path}" > "${output_file}" <<'PYEOF'
 import yaml, sys
 
 config_path = sys.argv[1]
+
+def emit(value):
+    sys.stdout.write(str(value))
+    sys.stdout.write('\0')
+
 try:
     with open(config_path) as f:
         cfg = yaml.safe_load(f)
@@ -62,27 +72,29 @@ try:
         sys.exit(4)
     if cfg.get("schema_version") != 2:
         sys.exit(4)
-    print(f"LOG_FILE='{cfg['log_file']}'")
-    print(f"RCLONE_BIN='{cfg.get('rclone_bin','')}'")
+    emit(cfg['log_file'])
+    emit(cfg.get('rclone_bin', ''))
     dirs = cfg.get("directories", [])
-    print(f"DIR_COUNT={len(dirs)}")
-    for i, d in enumerate(dirs):
-        local_path = d.get('local_path', '')
-        print(f"DIR_{i}_LOCAL_PATH='{local_path}'")
-        cloud_remote = d.get('cloud_remote', '')
-        print(f"DIR_{i}_CLOUD_REMOTE='{cloud_remote}'")
-        usb_devs = " ".join(d.get("usb_devices", []))
-        print(f"DIR_{i}_USB_DEVICES='{usb_devs}'")
+    emit(len(dirs))
+    for d in dirs:
+        emit(d.get('local_path', ''))
+        emit(d.get('cloud_remote', ''))
+        emit(" ".join(d.get("usb_devices", [])))
     usb_devices = cfg.get("usb_devices", [])
-    print(f"USB_DEVICE_COUNT={len(usb_devices)}")
-    for i, dev in enumerate(usb_devices):
-        print(f"USB_DEVICE_{i}_ID='{dev.get('id','')}'")
-        print(f"USB_DEVICE_{i}_LABEL='{dev.get('label','')}'")
+    emit(len(usb_devices))
+    for dev in usb_devices:
+        emit(dev.get('id', ''))
+        emit(dev.get('label', ''))
 except SystemExit:
     raise
 except Exception:
     sys.exit(4)
 PYEOF
+    local py_exit=$?
+    if [[ ${py_exit} -ne 0 ]]; then
+        rm -f "${output_file}"
+        exit 4
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -118,9 +130,34 @@ sync_to_cloud() {
 # main
 # ---------------------------------------------------------------------------
 main() {
-    local config_output
-    config_output=$(load_config "${CONFIG_FILE}") || exit 4
-    eval "${config_output}"
+    # Load config: NUL-delimited fields read directly into named variables —
+    # no eval, no source (security-fix-03).
+    local config_data_file
+    config_data_file=$(mktemp)
+
+    load_config "${CONFIG_FILE}" "${config_data_file}"
+
+    {
+        IFS= read -r -d '' LOG_FILE
+        IFS= read -r -d '' RCLONE_BIN
+        IFS= read -r -d '' DIR_COUNT
+        local dir_idx=0
+        while [[ ${dir_idx} -lt ${DIR_COUNT} ]]; do
+            IFS= read -r -d '' "DIR_${dir_idx}_LOCAL_PATH"
+            IFS= read -r -d '' "DIR_${dir_idx}_CLOUD_REMOTE"
+            IFS= read -r -d '' "DIR_${dir_idx}_USB_DEVICES"
+            ((dir_idx++))
+        done
+        IFS= read -r -d '' USB_DEVICE_COUNT
+        local dev_idx=0
+        while [[ ${dev_idx} -lt ${USB_DEVICE_COUNT} ]]; do
+            IFS= read -r -d '' "USB_DEVICE_${dev_idx}_ID"
+            IFS= read -r -d '' "USB_DEVICE_${dev_idx}_LABEL"
+            ((dev_idx++))
+        done
+    } < "${config_data_file}"
+
+    rm -f "${config_data_file}"
 
     log_info "-" "cloud sync job started"
 

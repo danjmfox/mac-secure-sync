@@ -15,7 +15,8 @@ Use `@nw-software-crafter` for implementation tasks.
 
 - Config: `~/.config/securelocal/config.yaml` (schema v2, directories-first)
 - YAML parsing: `python3` parse-once at startup via `load_config()`
-- USB registration: `install.sh add-device` subcommand
+- USB lifecycle: `install.sh add-device` / `remove-device` / `list-devices` subcommands
+- Shared USB-matching: `bin/lib/usb-common.sh` (`find_usb_by_uuid()`), sourced by `install.sh` and `sync-usb.sh` (ADR-004)
 - Two launchd triggers: WatchPaths `/Volumes` → `sync-usb.sh`; StartInterval → `sync-cloud.sh`
 
 See `docs/product/architecture/brief.md` for full architecture.

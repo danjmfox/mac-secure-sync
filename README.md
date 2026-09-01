@@ -33,7 +33,7 @@ Run `bin/install.sh`. The installer:
    - `com.securelocal.usb-sync.plist` — watches `/Volumes`, runs `sync-usb.sh`
    - `com.securelocal.cloud-sync.plist` — fires hourly, runs `sync-cloud.sh`
 
-### Registering additional USB drives
+### Managing USB drives
 
 After initial install, add a second drive without re-running the full installer:
 
@@ -42,6 +42,19 @@ bin/install.sh add-device --volume /Volumes/IronKey-B --label "IronKey-B"
 ```
 
 This appends the new device to your existing config atomically. Duplicate UUIDs are detected and rejected.
+
+List what's currently registered, including live mount state:
+
+```bash
+bin/install.sh list-devices
+```
+
+Deregister a drive that's lost, retired, or replaced (by label or UUID — this only edits `config.yaml`, it does not touch files already synced to the drive):
+
+```bash
+bin/install.sh remove-device --label "IronKey-B"
+bin/install.sh remove-device --uuid <uuid>
+```
 
 ## Configuration
 
@@ -103,10 +116,11 @@ bin/sync-usb.sh    # syncs any currently-mounted registered USB drives
 bin/sync-cloud.sh  # syncs all directories to their cloud remotes
 ```
 
-To run the acceptance test suite:
+To run the acceptance test suites:
 
 ```bash
-bash tests/acceptance/multi-usb-sync/run-tests.sh
+bash tests/acceptance/multi-usb-sync/run-tests.sh       # sync scripts + install/add-device
+bash tests/acceptance/usb-device-lifecycle/run-tests.sh  # remove-device/list-devices
 ```
 
 The test harness mocks `diskutil`, `rsync`, `rclone`, and `launchctl` — no real hardware required.
@@ -122,10 +136,11 @@ This unloads both LaunchAgents, removes the config, and optionally purges logs.
 ## Additional docs
 
 - `docs/product/architecture/brief.md` — component map, data flow, port contracts
-- `docs/product/architecture/c4-diagrams.md` — C4 System Context and Container diagrams
+- `docs/product/architecture/c4-diagrams.md` — C4 System Context, Container, and Component diagrams
+- `docs/product/architecture/adr-*.md` — architecture decision records (config schema, YAML parsing, USB registration, shared USB-matching library)
+- `docs/evolution/` — per-feature delivery history (what shipped, why, and what was learned)
 - `docs/rclone-advice.md` — rclone remote setup and encryption guidance
-- `docs/troubleshooting.md` — issue triage notes
-- `docs/features.md` — original sync approach and retry strategy notes
+- `docs/features.md` — historical design notes from before the multi-USB rework; superseded by the architecture docs above
 
 ## Security reminders
 

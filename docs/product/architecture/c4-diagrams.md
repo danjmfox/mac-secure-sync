@@ -36,7 +36,7 @@ C4Container
 
   Person(dan, "Dan (builder-user)")
 
-  Container(install, "install.sh", "Bash", "Interactive setup: checks deps, selects USB, writes config.yaml, installs launchd plists. add-device subcommand registers additional USB drives.")
+  Container(install, "install.sh", "Bash", "Interactive setup: checks deps, selects USB, writes config.yaml, installs launchd plists. add-device registers, remove-device deregisters, list-devices enumerates USB drives.")
   Container(syncusb, "sync-usb.sh", "Bash", "USB sync script. Loads config, finds mounted registered USB drives by UUID, rsync each directory to each matched drive.")
   Container(synccloud, "sync-cloud.sh", "Bash", "Cloud sync script. Loads config, rclone sync each directory to its configured remote.")
   ContainerDb(config, "config.yaml", "YAML", "Single source of truth for directories, USB device registry, and runtime settings. Located at ~/.config/securelocal/config.yaml.")
@@ -72,8 +72,38 @@ C4Container
 
 ---
 
+## L3 — Component (install.sh subcommands + shared USB matching)
+
+**Feature:** usb-device-lifecycle (2026-08-24)
+
+Produced for this subsystem only: `install.sh` now dispatches to 3 subcommands plus its interactive install flow, and introduces the project's first cross-container shared library (ADR-004). This crosses the "5+ components" / cross-container-reuse threshold that the L2 view cannot show without mixing abstraction levels.
+
+```mermaid
+C4Component
+  title Component Diagram — install.sh Subcommands and Shared USB Matching
+
+  Container_Boundary(install, "install.sh") {
+    Component(main_flow, "main() / install flow", "Bash", "Interactive install: dependency checks, FileVault check, volume select, config write, plist install")
+    Component(cmd_add, "cmd_add_device()", "Bash", "Registers a USB device: diskutil UUID lookup, duplicate check, atomic config write")
+    Component(cmd_remove, "cmd_remove_device()", "Bash", "Deregisters a device by --label or --uuid: removes from usb_devices[] and every directory mapping, atomic config write")
+    Component(cmd_list, "cmd_list_devices()", "Bash", "Enumerates registered devices with live mount state")
+  }
+
+  Component(usb_common, "usb-common.sh", "Bash library", "find_usb_by_uuid(uuid, volumes_base) — pure query function. No side effects on source.")
+  Container(syncusb, "sync-usb.sh", "Bash", "USB sync script (existing container, unchanged behavior)")
+  System_Ext(diskutil, "diskutil (system)", "Volume UUID lookup")
+
+  Rel(cmd_list, usb_common, "Sources and calls find_usb_by_uuid() from")
+  Rel(syncusb, usb_common, "Sources and calls find_usb_by_uuid() from")
+  Rel(usb_common, diskutil, "Queries Volume UUID via")
+  Rel(cmd_remove, cmd_add, "Mirrors atomic temp-rename write pattern of (ADR-003)")
+```
+
+See ADR-004 for the reuse decision and rejected alternatives.
+
 ## Notes
 
-- L3 (Component) is not produced. Both sync scripts have fewer than 5 internal functions each; a Component diagram would add no information beyond the Container view and the Component Map in `brief.md`.
+- L1/L2 container topology is unchanged by usb-device-lifecycle: same containers, extended `install.sh` behavior. `bin/lib/usb-common.sh` is a source-time library, not a deployment unit, so it appears only at L3, not as a new L2 container.
+- L3 (Component) was previously not produced (both sync scripts had fewer than 5 internal functions). It is now produced for the `install.sh` subsystem only, per the 5+ components / cross-container-reuse trigger.
 - Every arrow is labeled with a verb phrase per the C4 convention.
 - Abstraction levels are not mixed: launchd plists are Containers (deployment units), not Components of a script.

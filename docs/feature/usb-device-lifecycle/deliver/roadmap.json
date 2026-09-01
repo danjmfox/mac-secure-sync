@@ -1,0 +1,353 @@
+{
+  "roadmap": {
+    "project_id": "usb-device-lifecycle",
+    "created_at": "2026-08-26T14:46:44Z",
+    "total_steps": 16
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "remove-device (US-101)",
+      "description": "install.sh remove-device: deregister a USB device from usb_devices[] and every directory mapping by --label or --uuid, atomic write mirroring cmd_add_device().",
+      "default_agent": "nw-software-crafter",
+      "default_deps_strategy": "sequential",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Implement remove-device by label walking skeleton",
+          "agent": "nw-software-crafter",
+          "criteria": [
+            "remove-device --label removes the named device from usb_devices[] and exits 0",
+            "other registered devices' entries remain byte-for-byte identical to before removal",
+            "command output confirms the remaining count, e.g. '2 devices remain registered'"
+          ],
+          "test_file": "tests/acceptance/usb-device-lifecycle/run-tests.sh",
+          "scenario_name": "test_ws_remove_device_by_label_leaves_others_unchanged",
+          "files_to_modify": [
+            "bin/install.sh"
+          ],
+          "deps": [],
+          "implementation_notes": "Replace the RED-scaffold remove-device stub (install.sh, ~line 359) with cmd_remove_device(), sibling to cmd_add_device() and mirroring its flag-parsing and python3 atomic temp-rename write (ADR-003). OQ-004 (design/wave-decisions.md): the config mutation must be computed as a step separable from the atomic-write step (build the mutated dict, then write it) so a future, out-of-scope story could later insert a step between compute and write without restructuring this function. EXEMPT FROM PARADIGM: this is a Bash CLI acceptance-test suite (subprocess-driven .feature scenarios), not a Python/Hypothesis unit-test layer -- the PBT mandate does not apply. Compensate via the existing byte-for-byte entry-identity assertions (assert_device_entry_unchanged) as the adjacent invariant-style check."
+        },
+        {
+          "id": "01-02",
+          "name": "Strip removed device's UUID from directory mappings",
+          "agent": "nw-software-crafter",
+          "criteria": [
+            "removing a device strips its UUID from every directory's usb_devices[] list",
+            "directory entries themselves remain present; only the UUID reference is removed"
+          ],
+          "test_file": "tests/acceptance/usb-device-lifecycle/run-tests.sh",
+          "scenario_name": "test_remove_device_strips_uuid_from_every_directory_mapping",
+          "files_to_modify": [
+            "bin/install.sh"
+          ],
+          "deps": [
+            "01-01"
+          ],
+          "implementation_notes": "Extend cmd_remove_device()'s compute step to also filter the removed UUID out of directories[].usb_devices[] for every directory, leaving the directory entry itself intact. EXEMPT FROM PARADIGM: Bash acceptance suite, no Hypothesis layer available; compensated by the directory-presence + UUID-absence assertions already in this scenario."
+        },
+        {
+          "id": "01-03",
+          "name": "Support removal by UUID identifier",
+          "agent": "nw-software-crafter",
+          "criteria": [
+            "remove-device --uuid removes the matching device from usb_devices[] and every directory mapping",
+            "removal by UUID exits 0 and produces the same outcome as removal by label"
+          ],
+          "test_file": "tests/acceptance/usb-device-lifecycle/run-tests.sh",
+          "scenario_name": "test_remove_device_by_uuid_matches_removal_by_label",
+          "files_to_modify": [
+            "bin/install.sh"
+          ],
+          "deps": [
+            "01-02"
+          ],
+          "implementation_notes": "Add --uuid as an alternate identifier to the same match-then-remove compute step, sharing all removal logic with --label -- only the lookup key differs. EXEMPT FROM PARADIGM: Bash acceptance suite; compensated by the label/UUID equivalence assertion in this scenario."
+        },
+        {
+          "id": "01-04",
+          "name": "Handle removing the only device on a directory",
+          "agent": "nw-software-crafter",
+          "criteria": [
+            "removing the only UUID mapped to a directory leaves an empty usb_devices[] array, not an error",
+            "the command still exits 0 for this boundary case"
+          ],
+          "test_file": "tests/acceptance/usb-device-lifecycle/run-tests.sh",
+          "scenario_name": "test_remove_device_leaves_empty_directory_list_not_error",
+          "files_to_modify": [
+            "bin/install.sh"
+          ],
+          "deps": [
+            "01-03"
+          ],
+          "implementation_notes": "Boundary confirmation for the 01-02 filter step: an empty resulting list must serialize as [] and exit 0, not be treated as a missing/error state. EXEMPT FROM PARADIGM: Bash acceptance suite; this scenario is itself the adjacent boundary-invariant check."
+        },
+        {
+          "id": "01-05",
+          "name": "Reject unknown label or UUID identifiers",
+          "agent": "nw-software-crafter",
+          "criteria": [
+            "remove-device with an unregistered --label exits non-zero and leaves config.yaml byte-for-byte unchanged",
+            "remove-device with an unregistered --uuid exits non-zero and leaves config.yaml byte-for-byte unchanged",
+            "the error message names install.sh list-devices as the recovery step in both cases"
+          ],
+          "test_file": "tests/acceptance/usb-device-lifecycle/run-tests.sh",
+          "scenario_name": "test_remove_device_unknown_label_leaves_config_untouched",
+          "files_to_modify": [
+            "bin/install.sh"
+          ],
+          "deps": [
+            "01-03"
+          ],
+          "implementation_notes": "Also covers test_remove_device_unknown_uuid_leaves_config_untouched -- same not-found branch, two identifier types. No match found in the compute step must short-circuit before any write and print a message naming list-devices. EXEMPT FROM PARADIGM: Bash acceptance suite; compensated by the paired label/UUID not-found assertions.",
+          "scenario_names": [
+            "test_remove_device_unknown_label_leaves_config_untouched",
+            "test_remove_device_unknown_uuid_leaves_config_untouched"
+          ]
+        },
+        {
+          "id": "01-06",
+          "name": "Exit config-error code on missing or malformed config",
+          "agent": "nw-software-crafter",
+          "criteria": [
+            "remove-device exits with the config-error code (4) when config.yaml is missing",
+            "remove-device exits with the config-error code (4) when config.yaml is malformed YAML"
+          ],
+          "test_file": "tests/acceptance/usb-device-lifecycle/run-tests.sh",
+          "scenario_name": "test_remove_device_missing_config_exits_config_error",
+          "files_to_modify": [
+            "bin/install.sh"
+          ],
+          "deps": [
+            "01-01"
+          ],
+          "implementation_notes": "Also covers test_remove_device_malformed_config_exits_config_error. cmd_remove_device() must use exit code 4 for config-load failures (existing 0/2/4 convention per feature-delta.md), distinct from cmd_add_device()'s current exit 1 -- do not change cmd_add_device(). EXEMPT FROM PARADIGM: Bash acceptance suite; compensated by the paired missing/malformed config assertions.",
+          "scenario_names": [
+            "test_remove_device_missing_config_exits_config_error",
+            "test_remove_device_malformed_config_exits_config_error"
+          ]
+        },
+        {
+          "id": "01-07",
+          "name": "Validate identifier flag combinations",
+          "agent": "nw-software-crafter",
+          "criteria": [
+            "remove-device with neither --label nor --uuid exits non-zero and leaves config.yaml unchanged",
+            "remove-device with both --label and --uuid exits non-zero and leaves config.yaml unchanged"
+          ],
+          "test_file": "tests/acceptance/usb-device-lifecycle/run-tests.sh",
+          "scenario_name": "test_remove_device_requires_an_identifier",
+          "files_to_modify": [
+            "bin/install.sh"
+          ],
+          "deps": [
+            "01-01"
+          ],
+          "implementation_notes": "Also covers test_remove_device_rejects_both_label_and_uuid. Flag-parsing validation runs before any config read/compute, mirroring cmd_add_device()'s existing 'requires both flags' check shape. EXEMPT FROM PARADIGM: Bash acceptance suite; compensated by the paired zero-identifier/both-identifiers assertions.",
+          "scenario_names": [
+            "test_remove_device_requires_an_identifier",
+            "test_remove_device_rejects_both_label_and_uuid"
+          ]
+        },
+        {
+          "id": "01-08",
+          "name": "Verify remove-device writes config atomically",
+          "agent": "nw-software-crafter",
+          "criteria": [
+            "no temporary config file remains after remove-device completes",
+            "the final config.yaml exists and is readable by both sync scripts"
+          ],
+          "test_file": "tests/acceptance/usb-device-lifecycle/run-tests.sh",
+          "scenario_name": "test_remove_device_writes_config_atomically",
+          "files_to_modify": [
+            "bin/install.sh"
+          ],
+          "deps": [
+            "01-04",
+            "01-05",
+            "01-06",
+            "01-07"
+          ],
+          "implementation_notes": "Regression confirmation that the write step (01-01) used the temp-then-rename pattern (ADR-003) throughout all prior branches added in this phase, with no branch bypassing it. EXEMPT FROM PARADIGM: Bash acceptance suite; this @real-io scenario is itself the adjacent real-I/O safety check."
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "list-devices (US-102) + ADR-004 shared library",
+      "description": "install.sh list-devices: enumerate registered devices with live mount state via bin/lib/usb-common.sh's extracted find_usb_by_uuid() (ADR-004), sourced by both install.sh and sync-usb.sh.",
+      "default_agent": "nw-software-crafter",
+      "default_deps_strategy": "sequential",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Implement list-devices enumeration walking skeleton",
+          "agent": "nw-software-crafter",
+          "criteria": [
+            "list-devices lists every registered device with its label and UUID",
+            "output states the total count, e.g. '3 devices registered'",
+            "command exits 0"
+          ],
+          "test_file": "tests/acceptance/usb-device-lifecycle/run-tests.sh",
+          "scenario_name": "test_ws_list_devices_shows_every_registered_device",
+          "files_to_modify": [
+            "bin/install.sh"
+          ],
+          "deps": [],
+          "implementation_notes": "Replace the RED-scaffold list-devices stub (install.sh, ~line 363) with cmd_list_devices(): read-only, own minimal python3 config-read block (load_config() stays duplicated per ADR-002 precedent, not extracted -- ADR-004). No mount-state lookup needed for this scenario; independent of phase 01 and of the ADR-004 extraction. EXEMPT FROM PARADIGM: Bash acceptance suite, no Hypothesis layer; compensated by test_list_devices_never_modifies_config (02-07), the adjacent @property scenario in this same feature."
+        },
+        {
+          "id": "02-02",
+          "name": "Extract find_usb_by_uuid into shared library",
+          "agent": "nw-software-crafter",
+          "criteria": [
+            "bin/lib/usb-common.sh defines find_usb_by_uuid(uuid, volumes_base) with no main() and no top-level side effects",
+            "sync-usb.sh sources the library and its inline find_usb_by_uuid() copy is removed, with unchanged behavior",
+            "a currently-mounted device's list-devices row shows 'mounted' and its live mount path"
+          ],
+          "test_file": "tests/acceptance/usb-device-lifecycle/run-tests.sh",
+          "scenario_name": "test_mounted_device_shows_live_mount_path",
+          "files_to_modify": [
+            "bin/lib/usb-common.sh",
+            "bin/sync-usb.sh",
+            "bin/install.sh"
+          ],
+          "deps": [
+            "02-01"
+          ],
+          "implementation_notes": "ADR-004 Option A: move find_usb_by_uuid() (currently sync-usb.sh:91-110, defined but not itself called from sync-usb.sh's main() loop) verbatim into bin/lib/usb-common.sh -- pure query function, safe to source. sync-usb.sh sources it and deletes its inline copy; main()'s own inline scan loop is untouched (out of scope, pre-existing, no behavior change mandated). install.sh sources the same library and calls find_usb_by_uuid() from cmd_list_devices(). Add the CI/pre-commit grep check asserting find_usb_by_uuid() is defined exactly once in the repo (ADR-004 structural enforcement) and extend shellcheck to cover bin/lib/usb-common.sh. EXEMPT FROM PARADIGM: Bash acceptance suite; this extraction's own correctness is the ADR-004 Earned Trust regression probe completed in 02-08."
+        },
+        {
+          "id": "02-03",
+          "name": "Show not-mounted for unmounted registered devices",
+          "agent": "nw-software-crafter",
+          "criteria": [
+            "a registered but not-mounted device's list-devices row shows 'not mounted' with no path"
+          ],
+          "test_file": "tests/acceptance/usb-device-lifecycle/run-tests.sh",
+          "scenario_name": "test_unmounted_device_shows_not_mounted",
+          "files_to_modify": [
+            "bin/install.sh"
+          ],
+          "deps": [
+            "02-02"
+          ],
+          "implementation_notes": "find_usb_by_uuid() returning empty for an unregistered-as-mounted UUID must render as 'not mounted', not an error or blank row. EXEMPT FROM PARADIGM: Bash acceptance suite; this scenario is itself the adjacent not-mounted-state check."
+        },
+        {
+          "id": "02-04",
+          "name": "Show helpful empty state for zero registered devices",
+          "agent": "nw-software-crafter",
+          "criteria": [
+            "list-devices with an empty usb_devices[] list prints 'No USB devices registered. Run install.sh add-device to register one.'",
+            "the command exits 0 for the empty-registry boundary case"
+          ],
+          "test_file": "tests/acceptance/usb-device-lifecycle/run-tests.sh",
+          "scenario_name": "test_list_devices_empty_registry_shows_helpful_message",
+          "files_to_modify": [
+            "bin/install.sh"
+          ],
+          "deps": [
+            "02-01"
+          ],
+          "implementation_notes": "Boundary branch on zero-length usb_devices[] before the enumeration loop; independent of the mount-state work in 02-02/02-03. EXEMPT FROM PARADIGM: Bash acceptance suite; this scenario is itself the adjacent boundary-invariant check."
+        },
+        {
+          "id": "02-05",
+          "name": "Exit config-error code on missing or malformed config",
+          "agent": "nw-software-crafter",
+          "criteria": [
+            "list-devices exits with the config-error code (4) when config.yaml is missing",
+            "list-devices exits with the config-error code (4) when config.yaml is malformed YAML"
+          ],
+          "test_file": "tests/acceptance/usb-device-lifecycle/run-tests.sh",
+          "scenario_name": "test_list_devices_missing_config_exits_config_error",
+          "files_to_modify": [
+            "bin/install.sh"
+          ],
+          "deps": [
+            "02-01"
+          ],
+          "implementation_notes": "Also covers test_list_devices_malformed_config_exits_config_error. Same config-error convention (exit 4) as 01-06, applied to cmd_list_devices()'s own read-only config-load block. EXEMPT FROM PARADIGM: Bash acceptance suite; compensated by the paired missing/malformed config assertions.",
+          "scenario_names": [
+            "test_list_devices_missing_config_exits_config_error",
+            "test_list_devices_malformed_config_exits_config_error"
+          ]
+        },
+        {
+          "id": "02-06",
+          "name": "Treat unresolvable mount queries as not-mounted",
+          "agent": "nw-software-crafter",
+          "criteria": [
+            "list-devices still exits 0 when the live mount query fails",
+            "the affected device's row shows 'not mounted' rather than the command crashing"
+          ],
+          "test_file": "tests/acceptance/usb-device-lifecycle/run-tests.sh",
+          "scenario_name": "test_list_devices_handles_unresolvable_mount_query",
+          "files_to_modify": [
+            "bin/install.sh"
+          ],
+          "deps": [
+            "02-02"
+          ],
+          "implementation_notes": "cmd_list_devices() must treat a failing/erroring find_usb_by_uuid() diskutil call as 'not mounted' (fault-tolerant read), not propagate the subprocess failure. Earned Trust: this is the probe exercising the substrate lie of an unreliable diskutil query. EXEMPT FROM PARADIGM: Bash acceptance suite; this scenario is itself the adjacent fault-injection check."
+        },
+        {
+          "id": "02-07",
+          "name": "Guarantee list-devices never mutates config.yaml",
+          "agent": "nw-software-crafter",
+          "criteria": [
+            "config.yaml is byte-for-byte unchanged before and after any list-devices invocation, for any registry contents"
+          ],
+          "test_file": "tests/acceptance/usb-device-lifecycle/run-tests.sh",
+          "scenario_name": "test_list_devices_never_modifies_config",
+          "files_to_modify": [
+            "bin/install.sh"
+          ],
+          "deps": [
+            "02-03",
+            "02-04",
+            "02-06"
+          ],
+          "implementation_notes": "Contract-shape confirmation: cmd_list_devices() is a pure-function-shaped driving port (read-only) -- it must expose no write path at all, across every branch added in 02-01/02-03/02-04/02-06. EXEMPT FROM PARADIGM: this @property scenario already is the property-based invariant check for the whole phase; no separate Hypothesis layer exists or is needed."
+        },
+        {
+          "id": "02-08",
+          "name": "Verify list-devices and sync-usb.sh agree on mount state",
+          "agent": "nw-software-crafter",
+          "criteria": [
+            "install.sh list-devices and sync-usb.sh report the same mounted path for an identical mocked diskutil/Volumes fixture"
+          ],
+          "test_file": "tests/acceptance/usb-device-lifecycle/run-tests.sh",
+          "scenario_name": "test_list_devices_agrees_with_sync_usb_on_mount_state",
+          "files_to_modify": [
+            "bin/install.sh",
+            "bin/sync-usb.sh",
+            "bin/lib/usb-common.sh"
+          ],
+          "deps": [
+            "02-02",
+            "02-07"
+          ],
+          "implementation_notes": "This is ADR-004's own named Earned Trust regression probe (adr-004-shared-usb-matching-library.md Consequences section): proves the 02-02 extraction changed neither caller's behavior. Expected to pass from 02-02's implementation alone; this step's job is to enable and confirm it, not add new logic, unless it exposes drift. EXEMPT FROM PARADIGM: Bash acceptance suite; this @adapter-integration scenario is the adjacent cross-caller consistency check."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "bin/",
+      "bin/lib/"
+    ],
+    "test_directories": [
+      "tests/acceptance/usb-device-lifecycle/"
+    ],
+    "excluded_patterns": []
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-acceptance-designer-reviewer",
+    "approved_at": "2026-08-26T14:54:17Z"
+  }
+}

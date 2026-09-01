@@ -127,10 +127,6 @@ This unloads both LaunchAgents, removes the config, and optionally purges logs.
 - `docs/troubleshooting.md` — issue triage notes
 - `docs/features.md` — original sync approach and retry strategy notes
 
-## Continuous analysis
-
-GitHub Actions runs a SonarCloud scan on pushes to `main` and pull requests via `.github/workflows/sonarcloud.yml`. Set repository secrets `SONAR_TOKEN`, `SONAR_ORGANIZATION`, and `SONAR_PROJECT_KEY` to authenticate.
-
 ## Security reminders
 
 - Keep source directories inside FileVault (install script warns if disabled)

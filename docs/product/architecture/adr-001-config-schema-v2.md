@@ -73,7 +73,7 @@ cloud_remote = "remote-crypt:secureLocal"
 usb_devices = ["UUID-A", "UUID-B"]
 ```
 
-Rejected because: no TOML parser present on macOS system by default; would require Homebrew dependency (python3-toml or go binary); YAML is strictly more widely known to the target user; `python3` with `PyYAML` is available via system python3 on macOS 12+.
+Rejected because: no TOML parser present on macOS system by default; would require Homebrew dependency (python3-toml or go binary); YAML is strictly more widely known to the target user; `python3` with `PyYAML` was assumed available via system python3 on macOS 12+; it is not for `/usr/bin/python3` under launchd, see ADR-007.
 
 ### Option C (Rejected): JSON
 

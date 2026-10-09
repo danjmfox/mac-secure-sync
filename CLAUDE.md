@@ -40,3 +40,9 @@ Fix, direct execution (no waves): the installer's rclone.conf backup prompt expa
 Decision: `docs/decisions/adr-005-backup-path-normalisation.md`
 Tests: 8/8 GREEN — `tests/acceptance/backup-path-handling/run-tests.sh` (regression: multi-usb-sync 42/42, usb-device-lifecycle 49/49)
 Adds `normalise_backup_path()` to `install.sh`; `install.sh` runs `main` only when executed, not when sourced.
+
+### launchd-environment (2026-10-09)
+Fix, direct execution (no waves): `sync-usb.sh` used `declare -A`, which fails under launchd's `/bin/bash` 3.2, so USB sync never ran; one dataless (cloud-evicted) file aborted a whole rsync; launchd's `/usr/bin/python3` lacks PyYAML.
+Decisions: `docs/decisions/adr-006-launchd-bash32-and-dataless-files.md`, `docs/decisions/adr-007-pyyaml-check-at-install.md`
+Tests: `tests/acceptance/launchd-environment/run-tests.sh` (runs scripts as `env -i ... /bin/bash`)
+Adds `bin/lib/dataless.sh`; `sync-usb.sh` skips dataless files and exits 3 "completed with skips"; `install.sh` refuses to continue without PyYAML for launchd's python3.

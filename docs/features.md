@@ -1,6 +1,6 @@
 # Technical approach
 
-**Historical design notes — superseded.** This document predates the `multi-usb-sync` rework (2026-05-17) and describes the original single-directory, single-USB, single combined-script design (env-var config, one sync script, exit code `3` for "both failed"). Current architecture: `docs/product/architecture/brief.md` and `c4-diagrams.md`; current config format: ADR-001; current exit-code contract (no code `3` — the sync scripts are now independent processes, so "both fail" isn't a single reportable state): `README.md`. Left here as a record of the original thinking, not as current behavior.
+**Historical design notes — superseded.** This document predates the `multi-usb-sync` rework (2026-05-17) and describes the original single-directory, single-USB, single combined-script design (env-var config, one sync script, exit code `3` for "both failed"). Current architecture: `docs/product/architecture/brief.md` and `c4-diagrams.md`; current config format: ADR-001; current exit-code contract (code `3` now means USB sync completed with skips, not "both failed" — the sync scripts are independent processes): `README.md`. Left here as a record of the original thinking, not as current behavior.
 
 ## 1. USB detection via UUID
 

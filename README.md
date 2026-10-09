@@ -6,6 +6,7 @@ mac-secure-sync automates one-way sync of designated local directories to one or
 
 - macOS with `launchd`
 - `rsync`, `diskutil`, `python3`, `rclone`, and `fdesetup` on your `PATH`
+- PyYAML for `/usr/bin/python3`, the interpreter launchd uses: `/usr/bin/python3 -m pip install --user pyyaml`. The installer checks this and refuses to continue without it (ADR-007)
 - One or more dedicated USB drives (hardware-encrypted drives like Kingston IronKey D300 are recommended)
 - An `rclone` remote that already exists and is reachable (see `docs/rclone-advice.md`)
 - Optionally: FileVault enabled to protect local source directories
@@ -94,6 +95,7 @@ Both sync scripts use the same exit code contract:
 | 0 | All syncs succeeded |
 | 1 | USB sync failed (one or more directories) |
 | 2 | Cloud sync failed (one or more directories) |
+| 3 | USB sync completed with skips: dataless files skipped or an rsync partial transfer (see ADR-006) |
 | 4 | Configuration error (missing file, wrong schema version, invalid YAML) |
 
 ## Logging
@@ -106,7 +108,9 @@ Both scripts write structured entries to the log file configured in `config.yaml
 2026-05-17T07:32:04 ERROR sync-cloud ~/Projects    cloud sync failed after 2 attempts
 ```
 
-To check for failures: `grep ERROR ~/Library/Logs/securelocal-sync.log`
+To check for failures: `grep ERROR ~/Library/Logs/securelocal-sync.log`. To check for skipped files: `grep WARN ~/Library/Logs/securelocal-sync.log`.
+
+USB sync skips macOS "dataless" files (evicted by a cloud file provider such as iCloud Drive; `stat -f %Sf` shows the `dataless` flag) instead of triggering a download. Each skipped file is logged at WARN, and the job ends with `USB sync job completed with skips: N dataless file(s) skipped, M partial transfer(s)` and exit 3.
 
 ## Manual usage
 

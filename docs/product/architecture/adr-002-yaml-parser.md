@@ -34,7 +34,7 @@ Caller pattern:
 ```
 
 The python3 script:
-- Uses `import yaml, sys` (PyYAML is bundled with macOS system python3)
+- Uses `import yaml, sys` (PyYAML is NOT bundled with Apple's `/usr/bin/python3` as launchd runs it; the installer checks for it, ADR-007)
 - Emits flat bash-compatible variable names (e.g., `DIR_0_LOCAL_PATH`, `DIR_0_CLOUD_REMOTE`, `USB_0_ID`, `USB_0_LABEL`, `DIR_COUNT`, `USB_COUNT`)
 - Emits `SCHEMA_VERSION` for the shell to validate before using any other variable
 - Fails with exit code 4 and a structured message if the file is missing, unparseable, or has an unexpected schema_version

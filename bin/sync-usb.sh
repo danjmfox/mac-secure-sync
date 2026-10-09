@@ -10,6 +10,7 @@
 # Exit codes:
 #   0 — all syncs succeeded (or no registered drive found)
 #   1 — one or more USB syncs failed
+#   3 — completed with skips (dataless files skipped or rsync partial transfer)
 #   4 — config error (missing file, invalid YAML, schema mismatch)
 
 set -uo pipefail
@@ -27,6 +28,8 @@ MAX_RETRIES=2
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/usb-common.sh
 source "${SCRIPT_DIR}/lib/usb-common.sh"
+# shellcheck source=lib/dataless.sh
+source "${SCRIPT_DIR}/lib/dataless.sh"
 
 # ---------------------------------------------------------------------------
 # Logging — YYYY-MM-DDTHH:MM:SS LEVEL sync-usb DIR MESSAGE
@@ -45,6 +48,14 @@ log_error() {
     local ts
     ts=$(date '+%Y-%m-%dT%H:%M:%S')
     echo "${ts} ERROR sync-usb ${dir} ${message}" | tee -a "${LOG_FILE:-/dev/null}" >&2
+}
+
+log_warn() {
+    local dir="${1:-}"
+    local message="${2:-}"
+    local ts
+    ts=$(date '+%Y-%m-%dT%H:%M:%S')
+    echo "${ts} WARN sync-usb ${dir} ${message}" | tee -a "${LOG_FILE:-/dev/null}" >&2
 }
 
 # ---------------------------------------------------------------------------
@@ -105,8 +116,11 @@ PYEOF
 }
 
 # ---------------------------------------------------------------------------
-# sync_to_usb — rsync source dir to USB mount, retry once after 30s on fail
-# Returns 0 on success, 1 on failure after retries
+# sync_to_usb — rsync source dir to USB mount, retry once after 30s on fail.
+# Dataless files are excluded up front and logged at WARN. rsync exit 23/24
+# (partial transfer / vanished files) counts as completed with skips.
+# Returns 0 on success, 3 on completed with skips, 1 on failure after retries.
+# Sets SYNC_SKIPPED_FILES (dataless files skipped) and SYNC_PARTIAL (0 or 1).
 # ---------------------------------------------------------------------------
 sync_to_usb() {
     local source_dir="$1"
@@ -117,25 +131,52 @@ sync_to_usb() {
     source_basename=$(basename "${source_dir}")
     local usb_target="${usb_mount}/${source_basename}"
     local attempt=1
+    local exclude_file rc rel
 
+    SYNC_SKIPPED_FILES=0
+    SYNC_PARTIAL=0
     mkdir -p "${usb_target}"
+    exclude_file=$(mktemp)
+    local paths_file
+    paths_file=$(mktemp)
 
     while [[ ${attempt} -le ${MAX_RETRIES} ]]; do
         log_info "${dir_label}" "USB sync attempt ${attempt} of ${MAX_RETRIES}: ${source_dir} -> ${usb_target}"
 
-        if rsync -avh --ignore-errors "${source_dir}/" "${usb_target}/"; then
-            log_info "${dir_label}" "USB sync successful"
-            return 0
-        else
-            log_error "${dir_label}" "USB sync failed on attempt ${attempt}"
-            if [[ ${attempt} -lt ${MAX_RETRIES} ]]; then
-                log_info "${dir_label}" "Waiting 30s before retry..."
-                sleep 30
-            fi
+        list_file_flags "${source_dir}" | dataless_relative_paths "${source_dir}" > "${paths_file}"
+        escape_rsync_pattern < "${paths_file}" > "${exclude_file}"
+        SYNC_SKIPPED_FILES=0
+        while IFS= read -r rel; do
+            log_warn "${dir_label}" "skipped dataless file: ${rel}"
+            SYNC_SKIPPED_FILES=$((SYNC_SKIPPED_FILES + 1))
+        done < "${paths_file}"
+
+        rsync -avh --ignore-errors --exclude-from="${exclude_file}" "${source_dir}/" "${usb_target}/"
+        rc=$?
+        case ${rc} in
+            0)
+                rm -f "${exclude_file}" "${paths_file}"
+                log_info "${dir_label}" "USB sync successful"
+                [[ ${SYNC_SKIPPED_FILES} -eq 0 ]] && return 0
+                return 3
+                ;;
+            23|24)
+                rm -f "${exclude_file}" "${paths_file}"
+                SYNC_PARTIAL=1
+                log_warn "${dir_label}" "rsync partial transfer (exit ${rc}); remaining files were synced"
+                return 3
+                ;;
+        esac
+
+        log_error "${dir_label}" "USB sync failed on attempt ${attempt} (rsync exit ${rc})"
+        if [[ ${attempt} -lt ${MAX_RETRIES} ]]; then
+            log_info "${dir_label}" "Waiting 30s before retry..."
+            sleep 30
         fi
         ((attempt++))
     done
 
+    rm -f "${exclude_file}" "${paths_file}"
     return 1
 }
 
@@ -176,15 +217,18 @@ main() {
     # Scan for registered volumes
     local any_registered_found=false
     local sync_failed=false
+    local total_skipped=0
+    local total_partial=0
+    local sync_rc
 
-    # Build set of all registered UUIDs from config
-    declare -A registered_uuids
+    # Space-delimited set of registered UUIDs (bash 3.2 has no associative arrays)
+    local registered_uuids=" "
     local idx=0
     while [[ ${idx} -lt ${USB_DEVICE_COUNT:-0} ]]; do
         local uuid_var="USB_DEVICE_${idx}_ID"
         local uuid="${!uuid_var:-}"
         if [[ -n "${uuid}" ]]; then
-            registered_uuids["${uuid}"]=1
+            registered_uuids="${registered_uuids}${uuid} "
         fi
         ((idx++))
     done
@@ -208,10 +252,10 @@ main() {
             continue
         fi
 
-        if [[ -z "${registered_uuids[${vol_uuid}]+_}" ]]; then
-            # Not a registered UUID — silently ignore
-            continue
-        fi
+        case "${registered_uuids}" in
+            *" ${vol_uuid} "*) ;;
+            *) continue ;;  # Not a registered UUID — silently ignore
+        esac
 
         # This UUID is registered — find all directories that map to it
         any_registered_found=true
@@ -239,7 +283,11 @@ main() {
                     log_error "${dir_label}" "local directory not found: ${local_path}"
                     sync_failed=true
                 else
-                    if ! sync_to_usb "${local_path}" "${vol_path}" "${dir_label}"; then
+                    sync_to_usb "${local_path}" "${vol_path}" "${dir_label}"
+                    sync_rc=$?
+                    total_skipped=$((total_skipped + SYNC_SKIPPED_FILES))
+                    total_partial=$((total_partial + SYNC_PARTIAL))
+                    if [[ ${sync_rc} -eq 1 ]]; then
                         log_error "${dir_label}" "USB sync failed for ${local_path} -> ${vol_path}"
                         sync_failed=true
                     fi
@@ -257,6 +305,11 @@ main() {
     if [[ "${sync_failed}" == "true" ]]; then
         log_error "-" "one or more USB syncs failed"
         exit 1
+    fi
+
+    if [[ $((total_skipped + total_partial)) -gt 0 ]]; then
+        log_warn "-" "USB sync job completed with skips: ${total_skipped} dataless file(s) skipped, ${total_partial} partial transfer(s)"
+        exit 3
     fi
 
     log_info "-" "USB sync job completed successfully"

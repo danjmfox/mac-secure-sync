@@ -214,8 +214,8 @@ No component in this feature is a from-scratch build — every new piece either 
 `sync_to_usb(local_path, usb_target)` — imperative function:
 - Input: source directory path, destination directory path
 - Output: exit 0 on success
-- Error: exit 1 after MAX_RETRIES exhausted
-- Wraps `rsync -avh --ignore-errors`
+- Error: exit 1 after MAX_RETRIES exhausted; exit 3 when completed with skips (dataless files excluded via `--exclude-from`, or rsync exit 23/24), ADR-006
+- Wraps `rsync -avh --ignore-errors --exclude-from=<dataless list>`
 
 ### Sync Port Contract (Cloud)
 
@@ -271,7 +271,7 @@ All writes to config.yaml use temp-rename:
 ### Observability
 
 - Structured log format: `[ISO8601] [LEVEL] [SCRIPT] message` — both scripts write to same log file
-- Exit codes preserved and documented: 0=success, 1=USB fail, 2=cloud fail, 3=both fail, 4=config error
+- Exit codes preserved and documented: 0=success, 1=USB fail, 2=cloud fail, 3=USB completed with skips (ADR-006), 4=config error
 - Log rotation: out of scope; flagged for future concern (logrotate or launchd StandardOutPath rotation)
 
 ### Maintainability

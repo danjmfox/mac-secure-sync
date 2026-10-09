@@ -390,6 +390,7 @@ test_both_plists_recorded_by_launchctl() {
     CONFIG_FILE="${CONFIG_FILE}" \
     SECURELOCAL_VOLUMES_BASE="${VOLUMES_DIR}" \
     HOME="${TEST_DIR}/home" \
+    SECURELOCAL_LAUNCHD_PATH="${PATH}" \
         "${REPO_ROOT}/bin/install.sh" --non-interactive > /dev/null 2>&1 || true
 
     assert_calls_contain "${MOCK_BIN_DIR}/launchctl-calls.log" "com.securelocal.usb-sync" \

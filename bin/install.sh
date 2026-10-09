@@ -50,6 +50,44 @@ check_dependencies() {
 }
 
 # --------------------------------------------------------------------
+# launchd python3/PyYAML check
+# --------------------------------------------------------------------
+LAUNCHD_PATH="${SECURELOCAL_LAUNCHD_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"
+YAML_FIX_COMMAND="/usr/bin/python3 -m pip install --user pyyaml"
+
+# launchd_yaml_failure_message <probe_exit_code> — pure; 3 = yaml import failed,
+# 4 = config unparseable
+launchd_yaml_failure_message() {
+    case "$1" in
+        4) echo "The sync scripts could not parse ${CONFIG_FILE} under launchd's environment (PATH=${LAUNCHD_PATH}). Fix or restore the config, then re-run." ;;
+        *) echo "python3 under launchd's environment (PATH=${LAUNCHD_PATH}) cannot import PyYAML, so the sync scripts would fail with a config error on every run. Fix: ${YAML_FIX_COMMAND}  (then re-run; repeat after a macOS update if it stops working)" ;;
+    esac
+}
+
+check_launchd_yaml() {
+    local config_arg="" rc=0
+    [[ -f "${CONFIG_FILE}" ]] && config_arg="${CONFIG_FILE}"
+    env -i HOME="${HOME}" PATH="${LAUNCHD_PATH}" python3 -c '
+import sys
+try:
+    import yaml
+except Exception:
+    sys.exit(3)
+if len(sys.argv) > 1:
+    try:
+        with open(sys.argv[1]) as f:
+            if not isinstance(yaml.safe_load(f), dict):
+                sys.exit(4)
+    except Exception:
+        sys.exit(4)
+' ${config_arg:+"${config_arg}"} >/dev/null 2>&1 || rc=$?
+    if [[ ${rc} -ne 0 ]]; then
+        log_err "$(launchd_yaml_failure_message "${rc}")"
+        exit 1
+    fi
+}
+
+# --------------------------------------------------------------------
 # FileVault Status
 # --------------------------------------------------------------------
 check_filevault() {
@@ -287,6 +325,7 @@ cmd_add_device() {
     fi
 
     require_config_file 1
+    check_launchd_yaml
 
     # Extract UUID via diskutil
     local uuid
@@ -308,7 +347,7 @@ new_label = os.environ['NEW_LABEL']
 try:
     import yaml
 except ImportError:
-    print("ERROR: python3 yaml module not available", file=sys.stderr)
+    print("ERROR: python3 yaml module not available (fix: /usr/bin/python3 -m pip install --user pyyaml)", file=sys.stderr)
     sys.exit(1)
 
 with open(config_path) as f:
@@ -386,7 +425,7 @@ match_value = target_uuid if target_uuid else target_label
 try:
     import yaml
 except ImportError:
-    print("ERROR: python3 yaml module not available", file=sys.stderr)
+    print("ERROR: python3 yaml module not available (fix: /usr/bin/python3 -m pip install --user pyyaml)", file=sys.stderr)
     sys.exit(1)
 
 with open(config_path) as f:
@@ -454,7 +493,7 @@ config_path = os.environ['CONFIG_FILE']
 try:
     import yaml
 except ImportError:
-    print("ERROR: python3 yaml module not available", file=sys.stderr)
+    print("ERROR: python3 yaml module not available (fix: /usr/bin/python3 -m pip install --user pyyaml)", file=sys.stderr)
     sys.exit(1)
 
 with open(config_path) as f:
@@ -539,6 +578,7 @@ main() {
     log_section "SecureLocal Installer Started"
 
     if [[ "${NON_INTERACTIVE}" == "true" ]]; then
+        check_launchd_yaml
         # Non-interactive mode: install plists using existing config
         if [[ ! -f "${CONFIG_FILE}" ]]; then
             log_err "Config file not found: ${CONFIG_FILE} — required for --non-interactive"
@@ -552,6 +592,7 @@ main() {
     fi
 
     check_dependencies
+    check_launchd_yaml
     check_filevault
     select_usb_volume
 

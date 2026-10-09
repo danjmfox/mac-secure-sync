@@ -161,14 +161,35 @@ check_rclone_remote() {
 # --------------------------------------------------------------------
 # Offer Config Backup
 # --------------------------------------------------------------------
+# normalise_backup_path <raw> <home> — print raw with a leading "~" or "~/" expanded to home
+normalise_backup_path() {
+    local raw="$1" home="$2"
+    if [[ ${raw} == "~" || ${raw} == "~/"* ]]; then
+        raw="${home}${raw#\~}"
+    fi
+    [[ ${raw} == /* ]] || return 1
+    printf '%s\n' "${raw}"
+}
+
 backup_rclone_config() {
     echo
     read -rp "Would you like to back up your rclone config now? (y/n): " BACKUP_CHOICE
     if [[ ${BACKUP_CHOICE} =~ ^[Yy]$ ]]; then
-        read -rp "Enter a secure location (e.g. encrypted USB path or FileVault folder): " BACKUP_PATH
-        if [[ -n ${BACKUP_PATH} ]]; then
-            mkdir -p "${BACKUP_PATH}"
-            cp "${HOME}/.config/rclone/rclone.conf" "${BACKUP_PATH}/rclone.conf.backup-$(date +%Y%m%d)"
+        local raw_path="" BACKUP_PATH=""
+        while true; do
+            read -rp "Enter a secure location (e.g. encrypted USB path or FileVault folder): " raw_path || raw_path=""
+            [[ -z ${raw_path} ]] && break
+            if BACKUP_PATH=$(normalise_backup_path "${raw_path}" "${HOME}"); then
+                break
+            fi
+            log_warn "Path must be absolute (or start with ~/): ${raw_path}"
+        done
+        if [[ -n ${raw_path} ]]; then
+            (
+                umask 077
+                mkdir -p "${BACKUP_PATH}"
+                cp "${HOME}/.config/rclone/rclone.conf" "${BACKUP_PATH}/rclone.conf.backup-$(date +%Y%m%d)"
+            )
             log_ok "rclone config backed up to ${BACKUP_PATH}"
         else
             log_warn "Skipped backup (no path provided)."
@@ -613,4 +634,4 @@ main() {
     log_ok "Installation complete."
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then main "$@"; fi

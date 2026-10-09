@@ -35,6 +35,12 @@ Evolution: `docs/evolution/2026-09-01-usb-device-lifecycle.md`
 Tests: 49/49 GREEN — `tests/acceptance/usb-device-lifecycle/run-tests.sh` (regression: multi-usb-sync 38/38 GREEN)
 Adds `install.sh remove-device`/`list-devices`; extracts `find_usb_by_uuid()` to `bin/lib/usb-common.sh` (ADR-004). Phase 4 adversarial review found and fixed two code-injection vulnerabilities before ship (see evolution doc).
 
+### backup-path-handling (2026-10-08)
+Fix, direct execution (no waves): the installer's rclone.conf backup prompt expanded no `~`, so "~/crypt-backup" created a literal `~` directory under the cwd holding OAuth token and crypt passwords.
+Decision: `docs/decisions/adr-005-backup-path-normalisation.md`
+Tests: 8/8 GREEN — `tests/acceptance/backup-path-handling/run-tests.sh` (regression: multi-usb-sync 42/42, usb-device-lifecycle 49/49)
+Adds `normalise_backup_path()` to `install.sh`; `install.sh` runs `main` only when executed, not when sourced.
+
 ### launchd-environment (2026-10-09)
 Fix, direct execution (no waves): `sync-usb.sh` used `declare -A`, which fails under launchd's `/bin/bash` 3.2, so USB sync never ran; one dataless (cloud-evicted) file aborted a whole rsync; launchd's `/usr/bin/python3` lacks PyYAML.
 Decisions: `docs/decisions/adr-006-launchd-bash32-and-dataless-files.md`, `docs/decisions/adr-007-pyyaml-check-at-install.md`

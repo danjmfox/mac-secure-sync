@@ -50,7 +50,7 @@ install.sh
   ├── check_filevault()            -- REUSE unchanged
   ├── select_usb_volume()          -- EXTEND: core of add-device subcommand
   ├── check_rclone_remote()        -- REUSE unchanged
-  ├── backup_rclone_config()       -- REUSE unchanged
+  ├── backup_rclone_config()       -- EXTEND: tilde expansion, absolute-path check, 700/600 modes (ADR-005)
   ├── write_config_file()          -- REPLACE: writes config.yaml v2 (was config.env)
   ├── create_launch_agent()        -- REPLACE: writes 2 plists, removes old plist
   ├── cmd_add_device()             -- EXTEND select_usb_volume + duplicate UUID check

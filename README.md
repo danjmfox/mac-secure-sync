@@ -28,8 +28,9 @@ Run `bin/install.sh`. The installer:
 1. Verifies required binaries and warns if FileVault is disabled
 2. Prompts for the mounted USB volume name and captures its UUID
 3. Asks for the rclone remote per directory (default `remote-crypt:secureLocal`)
-4. Writes `~/.config/securelocal/config.yaml` (schema v2)
-5. Installs two LaunchAgents:
+4. Offers to back up `~/.config/rclone/rclone.conf` to a location you type (a leading `~` expands to your home directory; other relative paths are rejected; the backup directory is created mode 700 and the file mode 600)
+5. Writes `~/.config/securelocal/config.yaml` (schema v2)
+6. Installs two LaunchAgents:
    - `com.securelocal.usb-sync.plist` — watches `/Volumes`, runs `sync-usb.sh`
    - `com.securelocal.cloud-sync.plist` — fires hourly, runs `sync-cloud.sh`
 

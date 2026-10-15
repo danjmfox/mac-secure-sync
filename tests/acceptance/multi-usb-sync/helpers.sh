@@ -365,6 +365,61 @@ assert_log_lines_all_timestamped() {
 UUID_A="TEST-UUID-AAAA"
 UUID_B="TEST-UUID-BBBB"
 
+# The PATH the suite started with, restored by teardown_test_env.
+HARNESS_ORIGINAL_PATH="${HARNESS_ORIGINAL_PATH:-${PATH}}"
+
+# harness_system_path
+# System tool directories. /usr/local/bin is appended only when its bash runs:
+# on Apple silicon without Rosetta it holds Intel-only binaries that are
+# executable (-x) yet fail with "Bad CPU type in executable".
+harness_system_path() {
+    local path="/usr/bin:/bin:/usr/sbin:/sbin"
+    if [[ -x /usr/local/bin/bash ]] && /usr/local/bin/bash -c ':' >/dev/null 2>&1; then
+        path="${path}:/usr/local/bin"
+    fi
+    printf '%s' "${path}"
+}
+
+# python3_imports_yaml <python3> <path>
+# Runs the interpreter the way the scripts do under a temporary HOME (no user
+# site-packages), so a PyYAML that exists only under the real HOME does not count.
+python3_imports_yaml() {
+    local probe_home
+    probe_home=$(mktemp -d)
+    env -i HOME="${probe_home}" PATH="$2" "$1" -c 'import yaml' >/dev/null 2>&1
+    local rc=$?
+    rm -rf "${probe_home}"
+    return ${rc}
+}
+
+# provide_yaml_python3
+# Ensures `python3` on the mock bin can import PyYAML under a temporary HOME.
+# Apple's /usr/bin/python3 keeps PyYAML in the user site (~/Library/Python), which
+# a temp HOME hides. Candidates are run, not just tested with -x. Exits 2 naming
+# the missing capability when none works.
+provide_yaml_python3() {
+    local system_path candidate dir
+    system_path="$(harness_system_path)"
+    if python3_imports_yaml python3 "${system_path}"; then
+        return 0
+    fi
+    local candidates=(/usr/bin/python3 /opt/homebrew/bin/python3 /usr/local/bin/python3)
+    local IFS=:
+    for dir in ${HARNESS_ORIGINAL_PATH}; do
+        candidates+=("${dir}/python3")
+    done
+    unset IFS
+    for candidate in "${candidates[@]}"; do
+        if [[ -x "${candidate}" ]] && python3_imports_yaml "${candidate}" "${system_path}"; then
+            printf '#!/bin/sh\nexec "%s" "$@"\n' "${candidate}" > "${MOCK_BIN_DIR}/python3"
+            chmod +x "${MOCK_BIN_DIR}/python3"
+            return 0
+        fi
+    done
+    echo "no PyYAML-capable python3 found (probed: ${candidates[*]}); cannot run acceptance tests" >&2
+    exit 2
+}
+
 setup_test_env() {
     TEST_DIR=$(mktemp -d)
     MOCK_BIN_DIR="${TEST_DIR}/bin"
@@ -380,7 +435,8 @@ setup_test_env() {
     echo "test file content 2" > "${LOCAL_DIR}/file2.txt"
 
     # Restrict PATH to mock bin + essential system tools only
-    PATH="${MOCK_BIN_DIR}:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    PATH="${MOCK_BIN_DIR}:$(harness_system_path)"
+    provide_yaml_python3
     export PATH CONFIG_FILE LOG_FILE LOCAL_DIR VOLUMES_DIR TEST_DIR MOCK_BIN_DIR
 }
 
@@ -389,7 +445,7 @@ teardown_test_env() {
         rm -rf "${TEST_DIR}"
     fi
     # Restore PATH
-    PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    PATH="${HARNESS_ORIGINAL_PATH}"
     export PATH
 }
 

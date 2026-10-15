@@ -22,6 +22,7 @@ SYNC_CLOUD="${REPO_ROOT}/bin/sync-cloud.sh"
 source "${REPO_ROOT}/tests/acceptance/multi-usb-sync/helpers.sh"
 
 LAUNCHD_PATH_TAIL="/usr/bin:/bin:/usr/sbin:/sbin"
+# setup_test_env (helpers.sh) supplies a PyYAML-capable python3 on the mock bin.
 
 # run_launchd_script <script>
 # Runs the script under a launchd-like environment. Sets OUTPUT and RC.
@@ -34,29 +35,10 @@ run_launchd_script() {
     RC=$?
 }
 
-# Apple's /usr/bin/python3 may lack PyYAML. The scripts' config loading is not
-# under test, so supply a yaml-capable python3 through the mock bin when needed.
-provide_yaml_python3() {
-    if env -i HOME="${FAKE_HOME}" PATH="${LAUNCHD_PATH_TAIL}" python3 -c 'import yaml' 2>/dev/null; then
-        return 0
-    fi
-    local candidate
-    for candidate in /opt/homebrew/bin/python3 /usr/local/bin/python3 "$(command -v python3)"; do
-        if [[ -x "${candidate}" ]] && "${candidate}" -c 'import yaml' 2>/dev/null; then
-            printf '#!/bin/sh\nexec "%s" "$@"\n' "${candidate}" > "${MOCK_BIN_DIR}/python3"
-            chmod +x "${MOCK_BIN_DIR}/python3"
-            return 0
-        fi
-    done
-    echo "no PyYAML-capable python3 found; cannot run launchd-environment tests" >&2
-    exit 2
-}
-
 setup_launchd_env() {
     setup_test_env
     FAKE_HOME="${TEST_DIR}/home"
     mkdir -p "${FAKE_HOME}"
-    provide_yaml_python3
     create_mock_config_yaml "${CONFIG_FILE}" "${LOG_FILE}" "${LOCAL_DIR}" "IronKey-A" "${UUID_A}"
     VOLUME_PATH="${VOLUMES_DIR}/IronKey-A"
     mkdir -p "${VOLUME_PATH}"

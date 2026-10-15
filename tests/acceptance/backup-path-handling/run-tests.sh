@@ -25,7 +25,7 @@ source "${REPO_ROOT}/tests/acceptance/multi-usb-sync/helpers.sh"
 # Sets OUTPUT and RC.
 run_backup() {
     OUTPUT=$(cd "${FAKE_CWD}" && HOME="${FAKE_HOME}" INSTALL="${INSTALL}" \
-        bash -c 'source "${INSTALL}" && backup_rclone_config' <<< "$1" 2>&1)
+        "${BASH}" -c 'source "${INSTALL}" && backup_rclone_config' <<< "$1" 2>&1)
     RC=$?
 }
 

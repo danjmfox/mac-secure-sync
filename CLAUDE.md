@@ -52,3 +52,9 @@ Fix, direct execution (no waves): `sync-usb.sh` ran every 35-180 s from `WatchPa
 Decision: `docs/decisions/adr-008-usb-trigger-debounce-and-access-errors.md`
 Tests: `tests/acceptance/usb-retrigger-and-access-errors/run-tests.sh` (regression: launchd-environment 51, multi-usb-sync 42, usb-device-lifecycle 49, backup-path-handling 8)
 Adds `bin/lib/run-gate.sh` (signature + `SECURELOCAL_MIN_INTERVAL` debounce, default 600 s, state beside the log, lock) and `bin/lib/rsync-result.sh` (`--stats` classification); README "Permissions under launchd".
+
+### test-harness-portable-path (2026-10-15)
+Fix, direct execution (no waves): the acceptance harness hard-coded `/usr/local/bin` (Intel-only, dead on Apple silicon without Rosetta) and relied on Apple's `python3` finding PyYAML under a temp `HOME`.
+Decision: `docs/decisions/adr-009-test-harness-interpreter-resolution.md`
+Tests: multi-usb-sync 42, usb-device-lifecycle 49, backup-path-handling 8, launchd-environment 51, all GREEN under `bash` 5.3 and `/bin/bash`.
+Harness only: `helpers.sh` gains `harness_system_path` and `provide_yaml_python3` (capability-probed); no production code changed.

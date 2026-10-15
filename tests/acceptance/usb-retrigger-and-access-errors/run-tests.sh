@@ -33,27 +33,10 @@ run_launchd_script() {
     RC=$?
 }
 
-provide_yaml_python3() {
-    if env -i HOME="${FAKE_HOME}" PATH="${LAUNCHD_PATH_TAIL}" python3 -c 'import yaml' 2>/dev/null; then
-        return 0
-    fi
-    local candidate
-    for candidate in /opt/homebrew/bin/python3 /usr/local/bin/python3 "$(command -v python3)"; do
-        if [[ -x "${candidate}" ]] && "${candidate}" -c 'import yaml' 2>/dev/null; then
-            printf '#!/bin/sh\nexec "%s" "$@"\n' "${candidate}" > "${MOCK_BIN_DIR}/python3"
-            chmod +x "${MOCK_BIN_DIR}/python3"
-            return 0
-        fi
-    done
-    echo "no PyYAML-capable python3 found; cannot run tests" >&2
-    exit 2
-}
-
 setup_launchd_env() {
     setup_test_env
     FAKE_HOME="${TEST_DIR}/home"
     mkdir -p "${FAKE_HOME}"
-    provide_yaml_python3
     create_mock_config_yaml "${CONFIG_FILE}" "${LOG_FILE}" "${LOCAL_DIR}" "IronKey-A" "${UUID_A}"
     VOLUME_PATH="${VOLUMES_DIR}/IronKey-A"
     mkdir -p "${VOLUME_PATH}"

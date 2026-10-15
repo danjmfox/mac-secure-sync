@@ -46,3 +46,9 @@ Fix, direct execution (no waves): `sync-usb.sh` used `declare -A`, which fails u
 Decisions: `docs/decisions/adr-006-launchd-bash32-and-dataless-files.md`, `docs/decisions/adr-007-pyyaml-check-at-install.md`
 Tests: `tests/acceptance/launchd-environment/run-tests.sh` (runs scripts as `env -i ... /bin/bash`)
 Adds `bin/lib/dataless.sh`; `sync-usb.sh` skips dataless files and exits 3 "completed with skips"; `install.sh` refuses to continue without PyYAML for launchd's python3.
+
+### usb-retrigger-and-access-errors (2026-10-09)
+Fix, direct execution (no waves): `sync-usb.sh` ran every 35-180 s from `WatchPaths /Volumes` (full scan each time); rsync exit 23 with 0 files transferred (macOS denying access) was logged as "remaining files were synced".
+Decision: `docs/decisions/adr-008-usb-trigger-debounce-and-access-errors.md`
+Tests: `tests/acceptance/usb-retrigger-and-access-errors/run-tests.sh` (regression: launchd-environment 51, multi-usb-sync 42, usb-device-lifecycle 49, backup-path-handling 8)
+Adds `bin/lib/run-gate.sh` (signature + `SECURELOCAL_MIN_INTERVAL` debounce, default 600 s, state beside the log, lock) and `bin/lib/rsync-result.sh` (`--stats` classification); README "Permissions under launchd".

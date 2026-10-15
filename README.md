@@ -93,10 +93,16 @@ Both sync scripts use the same exit code contract:
 | Code | Meaning |
 |------|---------|
 | 0 | All syncs succeeded |
-| 1 | USB sync failed (one or more directories) |
+| 1 | USB sync failed (one or more directories), including rsync exit 23 with 0 files transferred and access errors |
 | 2 | Cloud sync failed (one or more directories) |
 | 3 | USB sync completed with skips: dataless files skipped or an rsync partial transfer (see ADR-006) |
 | 4 | Configuration error (missing file, wrong schema version, invalid YAML) |
+
+## Permissions under launchd
+
+launchd runs the sync scripts with `/bin/bash`. macOS privacy protection (TCC) can deny `/bin/bash` access to folders such as Documents, Desktop and iCloud Drive. When that happens rsync reports "Operation not permitted", transfers 0 files, and `sync-usb.sh` logs an ERROR naming Full Disk Access and exits 1 (see ADR-008).
+
+Granting Full Disk Access to `/bin/bash` lets every bash script that runs as your user read protected data, which is a broad grant with security consequences. Whether to grant it is a decision for you; this project changes no permission settings. Granting access to rsync is not recommended.
 
 ## Logging
 

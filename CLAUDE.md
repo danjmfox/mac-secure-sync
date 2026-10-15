@@ -46,3 +46,9 @@ Fix, direct execution (no waves): `sync-usb.sh` used `declare -A`, which fails u
 Decisions: `docs/decisions/adr-006-launchd-bash32-and-dataless-files.md`, `docs/decisions/adr-007-pyyaml-check-at-install.md`
 Tests: `tests/acceptance/launchd-environment/run-tests.sh` (runs scripts as `env -i ... /bin/bash`)
 Adds `bin/lib/dataless.sh`; `sync-usb.sh` skips dataless files and exits 3 "completed with skips"; `install.sh` refuses to continue without PyYAML for launchd's python3.
+
+### test-harness-portable-path (2026-10-15)
+Fix, direct execution (no waves): the acceptance harness hard-coded `/usr/local/bin` (Intel-only, dead on Apple silicon without Rosetta) and relied on Apple's `python3` finding PyYAML under a temp `HOME`.
+Decision: `docs/decisions/adr-009-test-harness-interpreter-resolution.md`
+Tests: multi-usb-sync 42, usb-device-lifecycle 49, backup-path-handling 8, launchd-environment 51, all GREEN under `bash` 5.3 and `/bin/bash`.
+Harness only: `helpers.sh` gains `harness_system_path` and `provide_yaml_python3` (capability-probed); no production code changed.

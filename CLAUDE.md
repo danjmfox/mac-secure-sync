@@ -47,6 +47,12 @@ Decisions: `docs/decisions/adr-006-launchd-bash32-and-dataless-files.md`, `docs/
 Tests: `tests/acceptance/launchd-environment/run-tests.sh` (runs scripts as `env -i ... /bin/bash`)
 Adds `bin/lib/dataless.sh`; `sync-usb.sh` skips dataless files and exits 3 "completed with skips"; `install.sh` refuses to continue without PyYAML for launchd's python3.
 
+### usb-retrigger-and-access-errors (2026-10-09)
+Fix, direct execution (no waves): `sync-usb.sh` ran every 35-180 s from `WatchPaths /Volumes` (full scan each time); rsync exit 23 with 0 files transferred (macOS denying access) was logged as "remaining files were synced".
+Decision: `docs/decisions/adr-008-usb-trigger-debounce-and-access-errors.md`
+Tests: `tests/acceptance/usb-retrigger-and-access-errors/run-tests.sh` (regression: launchd-environment 51, multi-usb-sync 42, usb-device-lifecycle 49, backup-path-handling 8)
+Adds `bin/lib/run-gate.sh` (signature + `SECURELOCAL_MIN_INTERVAL` debounce, default 600 s, state beside the log, lock) and `bin/lib/rsync-result.sh` (`--stats` classification); README "Permissions under launchd".
+
 ### test-harness-portable-path (2026-10-15)
 Fix, direct execution (no waves): the acceptance harness hard-coded `/usr/local/bin` (Intel-only, dead on Apple silicon without Rosetta) and relied on Apple's `python3` finding PyYAML under a temp `HOME`.
 Decision: `docs/decisions/adr-009-test-harness-interpreter-resolution.md`

@@ -8,8 +8,10 @@
 #   CONFIG_FILE=/path/to/config.yaml SECURELOCAL_VOLUMES_BASE=/Volumes ./sync-usb.sh
 #
 # Exit codes:
-#   0 — all syncs succeeded (or no registered drive found)
-#   1 — one or more USB syncs failed
+#   0 — all syncs succeeded (or no registered drive found, or skipped: no change
+#       since the last run / another run in progress — ADR-008)
+#   1 — one or more USB syncs failed (includes rsync 23/24 with 0 files
+#       transferred and access errors)
 #   3 — completed with skips (dataless files skipped or rsync partial transfer)
 #   4 — config error (missing file, invalid YAML, schema mismatch)
 
@@ -30,6 +32,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/usb-common.sh"
 # shellcheck source=lib/dataless.sh
 source "${SCRIPT_DIR}/lib/dataless.sh"
+# shellcheck source=lib/run-gate.sh
+source "${SCRIPT_DIR}/lib/run-gate.sh"
+# shellcheck source=lib/rsync-result.sh
+source "${SCRIPT_DIR}/lib/rsync-result.sh"
+
+# Minimum seconds between runs while the set of mounted registered drives is
+# unchanged (ADR-008). Non-numeric values fall back to the default.
+MIN_INTERVAL="${SECURELOCAL_MIN_INTERVAL:-600}"
+case "${MIN_INTERVAL}" in
+    ''|*[!0-9]*) MIN_INTERVAL=600 ;;
+esac
 
 # ---------------------------------------------------------------------------
 # Logging — YYYY-MM-DDTHH:MM:SS LEVEL sync-usb DIR MESSAGE
@@ -131,7 +144,7 @@ sync_to_usb() {
     source_basename=$(basename "${source_dir}")
     local usb_target="${usb_mount}/${source_basename}"
     local attempt=1
-    local exclude_file rc rel
+    local exclude_file rc rel rsync_out transferred access_error
 
     SYNC_SKIPPED_FILES=0
     SYNC_PARTIAL=0
@@ -139,6 +152,7 @@ sync_to_usb() {
     exclude_file=$(mktemp)
     local paths_file
     paths_file=$(mktemp)
+    rsync_out=$(mktemp)
 
     while [[ ${attempt} -le ${MAX_RETRIES} ]]; do
         log_info "${dir_label}" "USB sync attempt ${attempt} of ${MAX_RETRIES}: ${source_dir} -> ${usb_target}"
@@ -151,20 +165,26 @@ sync_to_usb() {
             SYNC_SKIPPED_FILES=$((SYNC_SKIPPED_FILES + 1))
         done < "${paths_file}"
 
-        rsync -avh --ignore-errors --exclude-from="${exclude_file}" "${source_dir}/" "${usb_target}/"
-        rc=$?
+        rsync -avh --stats --ignore-errors --exclude-from="${exclude_file}" "${source_dir}/" "${usb_target}/" 2>&1 | tee "${rsync_out}"
+        rc=${PIPESTATUS[0]}
         case ${rc} in
             0)
-                rm -f "${exclude_file}" "${paths_file}"
+                rm -f "${exclude_file}" "${paths_file}" "${rsync_out}"
                 log_info "${dir_label}" "USB sync successful"
                 [[ ${SYNC_SKIPPED_FILES} -eq 0 ]] && return 0
                 return 3
                 ;;
             23|24)
-                rm -f "${exclude_file}" "${paths_file}"
-                SYNC_PARTIAL=1
-                log_warn "${dir_label}" "rsync partial transfer (exit ${rc}); remaining files were synced"
-                return 3
+                transferred=$(rsync_files_transferred < "${rsync_out}")
+                access_error=no
+                rsync_output_has_access_error < "${rsync_out}" && access_error=yes
+                if [[ "$(classify_partial_exit "${transferred}" "${access_error}")" == "skips" ]]; then
+                    rm -f "${exclude_file}" "${paths_file}" "${rsync_out}"
+                    SYNC_PARTIAL=1
+                    log_warn "${dir_label}" "rsync partial transfer (exit ${rc}); ${transferred} file(s) transferred, the rest were skipped"
+                    return 3
+                fi
+                log_error "${dir_label}" "rsync (exit ${rc}) transferred 0 files and reported access errors; macOS privacy protection (Full Disk Access) may be denying /bin/bash; see README, Permissions under launchd"
                 ;;
         esac
 
@@ -176,8 +196,61 @@ sync_to_usb() {
         ((attempt++))
     done
 
-    rm -f "${exclude_file}" "${paths_file}"
+    rm -f "${exclude_file}" "${paths_file}" "${rsync_out}"
     return 1
+}
+
+# ---------------------------------------------------------------------------
+# mounted_registered_uuids — one UUID per line for each volume under
+# volumes_base whose UUID is in the registered set (space-delimited string).
+# ---------------------------------------------------------------------------
+mounted_registered_uuids() {
+    local volumes_base="$1"
+    local registered="$2"
+    local volume vol_uuid
+    [[ -d "${volumes_base}" ]] || return 0
+    for volume in "${volumes_base}"/*/; do
+        [[ -d "${volume}" ]] || continue
+        vol_uuid=$(get_volume_uuid "${volume%/}")
+        [[ -n "${vol_uuid}" ]] || continue
+        case "${registered}" in
+            *" ${vol_uuid} "*) echo "${vol_uuid}" ;;
+        esac
+    done
+}
+
+# ---------------------------------------------------------------------------
+# gate_or_exit — exit 0 quietly when another run is in progress, or when the
+# mounted registered drives are unchanged and the last run finished less than
+# MIN_INTERVAL ago (ADR-008). Otherwise take the lock and install an EXIT trap
+# that stamps the finish time and signature (success or failure) and unlocks.
+# A skipped trigger never refreshes the stamp, so the window cannot slide.
+# ---------------------------------------------------------------------------
+gate_or_exit() {
+    local registered="$1"
+    local state_dir="${SECURELOCAL_STATE_DIR:-$(dirname "${LOG_FILE}")}"
+    GATE_STATE_FILE="${state_dir}/securelocal-usb-sync.state"
+    GATE_LOCK_DIR="${state_dir}/securelocal-usb-sync.lock"
+
+    GATE_SIGNATURE=$(mounted_registered_uuids "${VOLUMES_BASE}" "${registered}" | signature_from_uuids)
+
+    if ! acquire_run_lock "${GATE_LOCK_DIR}"; then
+        log_info "-" "another USB sync run is in progress, skipping"
+        exit 0
+    fi
+
+    local state last_ts last_sig
+    state=$(read_run_state "${GATE_STATE_FILE}")
+    last_ts=$(printf '%s\n' "${state}" | sed -n 1p)
+    last_sig=$(printf '%s\n' "${state}" | sed -n 2p)
+
+    if [[ "$(decide_run "${GATE_SIGNATURE}" "$(date +%s)" "${last_sig}" "${last_ts}" "${MIN_INTERVAL}")" == "skip" ]]; then
+        release_run_lock "${GATE_LOCK_DIR}"
+        log_info "-" "no change since last run, skipping"
+        exit 0
+    fi
+
+    trap 'write_run_state "${GATE_STATE_FILE}" "$(date +%s)" "${GATE_SIGNATURE}" || true; release_run_lock "${GATE_LOCK_DIR}"' EXIT
 }
 
 # ---------------------------------------------------------------------------
@@ -212,9 +285,6 @@ main() {
 
     rm -f "${config_data_file}"
 
-    log_info "-" "USB sync job started"
-
-    # Scan for registered volumes
     local any_registered_found=false
     local sync_failed=false
     local total_skipped=0
@@ -232,6 +302,10 @@ main() {
         fi
         ((idx++))
     done
+
+    gate_or_exit "${registered_uuids}"
+
+    log_info "-" "USB sync job started"
 
     # Scan volumes base for any mounted volumes
     if [[ ! -d "${VOLUMES_BASE}" ]]; then
